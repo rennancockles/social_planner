@@ -1,15 +1,20 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.database import create_db_and_tables
 from app.routers import posts, profile
 
+MEDIA_DIR = Path("media")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+    MEDIA_DIR.mkdir(exist_ok=True)  # noqa: ASYNC240 — runs once at startup, not in a hot path
     create_db_and_tables()
     yield
 
@@ -24,7 +29,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
+app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 app.include_router(posts.router)
 app.include_router(profile.router)
 

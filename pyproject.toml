@@ -19,6 +19,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "pydantic-settings>=2.7",
     "httpx2>=2.13",
+    "pillow>=11.0",
 ]
 
 [dependency-groups]
