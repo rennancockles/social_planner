@@ -1,11 +1,23 @@
+import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { Navbar } from './components/Navbar'
+import { ApprovedPage } from './pages/ApprovedPage'
+import { GeneratePage } from './pages/GeneratePage'
+import { ProfilePage } from './pages/ProfilePage'
+
 function App() {
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="text-center">
-        <h1 className="text-3xl font-bold text-gray-900">Social Planner</h1>
-        <p className="mt-2 text-gray-500">Em breve...</p>
+    <BrowserRouter>
+      <div className="min-h-screen bg-gray-50">
+        <Navbar />
+        <main>
+          <Routes>
+            <Route path="/" element={<GeneratePage />} />
+            <Route path="/aprovados" element={<ApprovedPage />} />
+            <Route path="/perfil" element={<ProfilePage />} />
+          </Routes>
+        </main>
       </div>
-    </div>
+    </BrowserRouter>
   )
 }
 
