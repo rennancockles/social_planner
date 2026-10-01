@@ -1,11 +1,31 @@
-import { useEffect, useState } from 'react'
-import { api } from '../lib/api'
+import { useEffect, useRef, useState } from 'react'
+import { api, API_URL } from '../lib/api'
 import type { Post } from '../lib/types'
 
 const PLATFORM_EMOJI: Record<string, string> = {
   instagram: '📸',
   linkedin: '💼',
   twitter: '🐦',
+}
+
+function ImagePreview({ post }: { post: Post }) {
+  const imageUrl = post.image_path ? `${API_URL}/${post.image_path}` : null
+
+  if (!imageUrl) {
+    return (
+      <div className="w-full aspect-square rounded-lg bg-gray-100 animate-pulse flex items-center justify-center text-gray-400 text-sm">
+        Gerando imagem...
+      </div>
+    )
+  }
+
+  return (
+    <img
+      src={imageUrl}
+      alt="Imagem gerada para o post"
+      className="w-full aspect-square rounded-lg object-cover"
+    />
+  )
 }
 
 function PostCard({
@@ -33,28 +53,35 @@ function PostCard({
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm flex flex-col gap-4">
-      <div className="flex items-center gap-2 text-sm text-gray-500">
-        <span>{PLATFORM_EMOJI[post.platform]}</span>
-        <span className="capitalize">{post.platform}</span>
-        {post.topic && <span className="ml-auto bg-violet-50 text-violet-700 px-2 py-0.5 rounded-full text-xs">{post.topic}</span>}
-      </div>
-      <p className="text-gray-800 whitespace-pre-wrap leading-relaxed">{post.content}</p>
-      <div className="flex gap-3">
-        <button
-          onClick={handleApprove}
-          disabled={busy}
-          className="flex-1 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg py-2 text-sm font-medium transition-colors"
-        >
-          ✓ Aprovar
-        </button>
-        <button
-          onClick={handleReject}
-          disabled={busy}
-          className="flex-1 bg-gray-100 hover:bg-red-100 hover:text-red-700 disabled:opacity-50 text-gray-600 rounded-lg py-2 text-sm font-medium transition-colors"
-        >
-          ✕ Rejeitar
-        </button>
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col gap-4 overflow-hidden">
+      <ImagePreview post={post} />
+      <div className="px-5 pb-5 flex flex-col gap-4">
+        <div className="flex items-center gap-2 text-sm text-gray-500">
+          <span>{PLATFORM_EMOJI[post.platform]}</span>
+          <span className="capitalize">{post.platform}</span>
+          {post.topic && (
+            <span className="ml-auto bg-violet-50 text-violet-700 px-2 py-0.5 rounded-full text-xs">
+              {post.topic}
+            </span>
+          )}
+        </div>
+        <p className="text-gray-800 whitespace-pre-wrap leading-relaxed">{post.content}</p>
+        <div className="flex gap-3">
+          <button
+            onClick={handleApprove}
+            disabled={busy}
+            className="flex-1 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg py-2 text-sm font-medium transition-colors"
+          >
+            ✓ Aprovar
+          </button>
+          <button
+            onClick={handleReject}
+            disabled={busy}
+            className="flex-1 bg-gray-100 hover:bg-red-100 hover:text-red-700 disabled:opacity-50 text-gray-600 rounded-lg py-2 text-sm font-medium transition-colors"
+          >
+            ✕ Rejeitar
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -65,9 +92,31 @@ export function GeneratePage() {
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  function stopPolling() {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current)
+      pollingRef.current = null
+    }
+  }
+
+  function startPolling() {
+    stopPolling()
+    pollingRef.current = setInterval(async () => {
+      const refreshed = await api.posts.list('pending').catch(() => null)
+      if (!refreshed) return
+      setPosts(refreshed)
+      if (refreshed.every(p => p.image_path !== null)) stopPolling()
+    }, 3000)
+  }
 
   useEffect(() => {
-    api.posts.list('pending').then(setPosts).catch(() => {})
+    api.posts.list('pending').then(p => {
+      setPosts(p)
+      if (p.some(post => post.image_path === null)) startPolling()
+    }).catch(() => {})
+    return stopPolling
   }, [])
 
   async function handleGenerate(e: React.FormEvent) {
@@ -77,6 +126,7 @@ export function GeneratePage() {
     try {
       const newPosts = await api.posts.generate(topic || undefined)
       setPosts(prev => [...newPosts, ...prev])
+      if (newPosts.some(p => p.image_path === null)) startPolling()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao gerar posts.')
     } finally {

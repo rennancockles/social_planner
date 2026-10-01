@@ -109,44 +109,20 @@ dmypy.json
 htmlcov/
 coverage.xml
 
-# templates
-.github/templates/*
-
 # ide
 .vscode
 
 # KanbAI
 .kanbai
 
-# scratchworks
-scratchworks/
-scratchwork.py
-scratch.py
-
 # Don't track local copy of data
-data/blog_data/
-notebooks/output/
-notebooks/EDA/output/
-data/raw/*
-src/egpt/models/*.model
-data/processed/*
-.volumes/
 tmp/
 local.md
 *.local.*
 .claude
 .mcp.json
+media/
 
 # Don't track local logging
 app_logs.txt
 logs/
-
-#loom
-loom.json
-.loom/*
-.cursor/*
-.codex/*
-.github/*
-features/*
-AGENTS.md
-loom.toml
