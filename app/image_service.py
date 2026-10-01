@@ -1,3 +1,4 @@
+import base64
 import random
 from io import BytesIO
 from pathlib import Path
@@ -253,29 +254,32 @@ def _dalle_prompt(post_content: str) -> str:
     )
 
 
-def _fetch_image(url: str) -> Image.Image:
-    with httpx2.Client(timeout=30) as client:
-        r = client.get(url)
-        r.raise_for_status()
-    return Image.open(BytesIO(r.content)).resize((IMAGE_SIZE, IMAGE_SIZE), Image.Resampling.LANCZOS)
-
-
 def generate_post_image(post_id: int, post_content: str, watermark: bool = True) -> Path:
     client = openai.OpenAI(api_key=settings.openai_api_key)
-    response = client.images.generate(
-        model="dall-e-3",
+    response = client.images.generate(  # type: ignore[call-overload]
+        model=settings.openai_image_model,
         prompt=_dalle_prompt(post_content),
-        size="1024x1024",
-        quality="standard",
+        size=settings.openai_image_size,
+        quality=settings.openai_image_quality,
         n=1,
     )
     if not response.data:
-        raise RuntimeError("DALL-E did not return an image.")
-    image_url = response.data[0].url
-    if not image_url:
-        raise RuntimeError("DALL-E did not return an image URL.")
+        raise RuntimeError("Image generation did not return data.")
 
-    bg = _fetch_image(image_url)
+    item = response.data[0]
+    if item.b64_json:
+        img_bytes = base64.b64decode(item.b64_json)
+    elif item.url:
+        with httpx2.Client(timeout=30) as http:
+            r = http.get(item.url)
+            r.raise_for_status()
+        img_bytes = r.content
+    else:
+        raise RuntimeError("Image generation returned neither b64_json nor url.")
+
+    bg = Image.open(BytesIO(img_bytes)).resize(
+        (IMAGE_SIZE, IMAGE_SIZE), Image.Resampling.LANCZOS
+    )
 
     style_fn = random.choice(_STYLES)
     result = style_fn(bg, post_content, watermark)

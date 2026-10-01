@@ -29,6 +29,7 @@ class Post(SQLModel, table=True):
     platform: Platform
     topic: str | None = None
     status: PostStatus = PostStatus.pending
+    image_path: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
