@@ -10,7 +10,10 @@ export function Navbar() {
 
   return (
     <nav className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-2">
-      <span className="font-bold text-violet-700 mr-4 text-lg">Social Planner</span>
+      <span className="flex items-center gap-2 mr-4">
+        <img src="/logo-icon.png" alt="Social Planner" className="h-8 w-8" />
+        <span className="font-bold text-violet-700 text-lg">Social Planner</span>
+      </span>
       <NavLink to="/" className={linkClass} end>Gerar Posts</NavLink>
       <NavLink to="/aprovados" className={linkClass}>Aprovados</NavLink>
       <NavLink to="/perfil" className={linkClass}>Perfil</NavLink>
