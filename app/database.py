@@ -14,12 +14,18 @@ def create_db_and_tables() -> None:
 
 def _migrate() -> None:
     with engine.connect() as conn:
-        existing = {
-            row[1]
-            for row in conn.execute(text("PRAGMA table_info(post)")).fetchall()
-        }
+        existing = {row[1] for row in conn.execute(text("PRAGMA table_info(post)")).fetchall()}
         if "image_path" not in existing:
             conn.execute(text("ALTER TABLE post ADD COLUMN image_path TEXT"))
+            conn.commit()
+        if "phrase" not in existing:
+            conn.execute(text("ALTER TABLE post ADD COLUMN phrase TEXT"))
+            conn.commit()
+        if "font" not in existing:
+            conn.execute(text("ALTER TABLE post ADD COLUMN font TEXT"))
+            conn.commit()
+        if "overlay_style" not in existing:
+            conn.execute(text("ALTER TABLE post ADD COLUMN overlay_style TEXT"))
             conn.commit()
 
 

@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.database import create_db_and_tables
-from app.routers import posts, profile
+from app.routers import posts, profile, wizard
 
 MEDIA_DIR = Path("media")
 
@@ -32,6 +32,7 @@ app.add_middleware(
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 app.include_router(posts.router)
 app.include_router(profile.router)
+app.include_router(wizard.router)
 
 
 @app.get("/api/health")

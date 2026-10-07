@@ -30,6 +30,9 @@ class Post(SQLModel, table=True):
     topic: str | None = None
     status: PostStatus = PostStatus.pending
     image_path: str | None = None
+    phrase: str | None = None
+    font: str | None = None
+    overlay_style: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 

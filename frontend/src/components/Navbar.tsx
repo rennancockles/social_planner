@@ -15,6 +15,7 @@ export function Navbar() {
         <span className="font-bold text-violet-700 text-lg">Social Planner</span>
       </span>
       <NavLink to="/" className={linkClass} end>Gerar Posts</NavLink>
+      <NavLink to="/criar" className={linkClass}>Criar Post</NavLink>
       <NavLink to="/aprovados" className={linkClass}>Aprovados</NavLink>
       <NavLink to="/perfil" className={linkClass}>Perfil</NavLink>
     </nav>

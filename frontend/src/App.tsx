@@ -3,6 +3,7 @@ import { Navbar } from './components/Navbar'
 import { ApprovedPage } from './pages/ApprovedPage'
 import { GeneratePage } from './pages/GeneratePage'
 import { ProfilePage } from './pages/ProfilePage'
+import { WizardPage } from './pages/WizardPage'
 
 function App() {
   return (
@@ -12,6 +13,7 @@ function App() {
         <main>
           <Routes>
             <Route path="/" element={<GeneratePage />} />
+            <Route path="/criar" element={<WizardPage />} />
             <Route path="/aprovados" element={<ApprovedPage />} />
             <Route path="/perfil" element={<ProfilePage />} />
           </Routes>
