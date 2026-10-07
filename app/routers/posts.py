@@ -19,9 +19,9 @@ class GenerateRequest(BaseModel):
     count: int = 5
 
 
-def _generate_and_save_image(post_id: int, content: str) -> None:
+def _generate_and_save_image(post_id: int, content: str, topic: str | None) -> None:
     try:
-        path = generate_post_image(post_id, content)
+        path = generate_post_image(post_id, content, topic)
         with Session(engine) as session:
             repo = PostRepository(session)
             post = repo.get_by_id(post_id)
@@ -55,7 +55,7 @@ def generate_posts(
 
     for post in saved:
         if post.id is not None:
-            background_tasks.add_task(_generate_and_save_image, post.id, post.content)
+            background_tasks.add_task(_generate_and_save_image, post.id, post.content, post.topic)
 
     return saved
 

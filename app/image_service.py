@@ -1,13 +1,12 @@
-import base64
 import random
+import re
 from io import BytesIO
 from pathlib import Path
 
-import httpx2
-import openai
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-from app.settings import settings
+from app.ai_service import get_ai_service
+from app.image_search import search_image
 
 ASSETS_DIR = Path("assets")
 MEDIA_DIR = Path("media")
@@ -16,8 +15,18 @@ FONT_ITALIC = ASSETS_DIR / "fonts" / "PlayfairDisplay-Italic.ttf"
 IMAGE_SIZE = 1080
 WATERMARK = "@stephanie_thuller"
 
+_HASHTAG_RE = re.compile(r"#\w+", re.UNICODE)
+_ALLOWED_OVERLAY_CHARS = " .,!?:;'\"-()…–—«»“”‘’\n"
+
 
 # ── helpers ──────────────────────────────────────────────────────────────────
+
+
+def _clean_overlay_text(text: str) -> str:
+    """Strip hashtags and glyphs the overlay font can't render (emoji, symbols)."""
+    without_hashtags = _HASHTAG_RE.sub("", text)
+    allowed = "".join(ch for ch in without_hashtags if ch.isalnum() or ch in _ALLOWED_OVERLAY_CHARS)
+    return re.sub(r"\s+", " ", allowed).strip()
 
 
 def _font(size: int, italic: bool = False) -> ImageFont.FreeTypeFont:
@@ -242,47 +251,25 @@ _STYLES = [_style_box, _style_bottom_dark, _style_light_border, _style_minimal]
 # ── public API ────────────────────────────────────────────────────────────────
 
 
-def _dalle_prompt(post_content: str) -> str:
-    short = post_content[:300]
-    return (
-        f"Create a beautiful, artistic background image for a social media post with this theme: "
-        f"{short}. "
-        "The image must have NO text, letters, words, or writing of any kind. "
-        "Aesthetic: soft, ethereal, warm tones. "
-        "Style: fine art photography or painterly illustration. "
-        "Square format 1:1."
-    )
+def _search_query(topic: str | None, post_content: str) -> str:
+    keywords = get_ai_service().extract_image_keywords(topic, post_content)
+    return keywords or topic or "abstract aesthetic background"
 
 
-def generate_post_image(post_id: int, post_content: str, watermark: bool = True) -> Path:
-    client = openai.OpenAI(api_key=settings.openai_api_key)
-    response = client.images.generate(  # type: ignore[call-overload]
-        model=settings.openai_image_model,
-        prompt=_dalle_prompt(post_content),
-        size=settings.openai_image_size,
-        quality=settings.openai_image_quality,
-        n=1,
-    )
-    if not response.data:
-        raise RuntimeError("Image generation did not return data.")
+def generate_post_image(
+    post_id: int, post_content: str, topic: str | None = None, watermark: bool = True
+) -> Path:
+    query = _search_query(topic, post_content)
+    img_bytes = search_image(query)
 
-    item = response.data[0]
-    if item.b64_json:
-        img_bytes = base64.b64decode(item.b64_json)
-    elif item.url:
-        with httpx2.Client(timeout=30) as http:
-            r = http.get(item.url)
-            r.raise_for_status()
-        img_bytes = r.content
-    else:
-        raise RuntimeError("Image generation returned neither b64_json nor url.")
-
-    bg = Image.open(BytesIO(img_bytes)).resize(
-        (IMAGE_SIZE, IMAGE_SIZE), Image.Resampling.LANCZOS
+    bg = (
+        Image.open(BytesIO(img_bytes))
+        .convert("RGB")
+        .resize((IMAGE_SIZE, IMAGE_SIZE), Image.Resampling.LANCZOS)
     )
 
     style_fn = random.choice(_STYLES)
-    result = style_fn(bg, post_content, watermark)
+    result = style_fn(bg, _clean_overlay_text(post_content), watermark)
 
     out_path = MEDIA_DIR / f"{post_id}.png"
     result.save(str(out_path), "PNG", optimize=True)

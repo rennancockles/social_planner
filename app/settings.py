@@ -14,11 +14,9 @@ class Settings(BaseSettings):
     ai_provider: AIProvider = AIProvider.openai
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
-    openai_image_model: str = "gpt-image-1"
-    openai_image_size: str = "1024x1024"
-    openai_image_quality: str = "medium"
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-6"
+    unsplash_access_key: str = ""
 
 
 settings = Settings()

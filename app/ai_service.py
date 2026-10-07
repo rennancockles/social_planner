@@ -53,9 +53,22 @@ def _parse_posts(raw: str, profile: Profile, topic: str | None, count: int) -> l
     ]
 
 
+def _keywords_prompt(topic: str | None, content: str) -> str:
+    subject = topic or content[:300]
+    return (
+        "Extract 2 to 4 short English keywords describing a background photo that visually "
+        f"matches the mood/theme of this social media post: {subject}\n"
+        "Return ONLY the keywords separated by spaces. No punctuation, no explanation."
+    )
+
+
 class AIService(ABC):
     @abstractmethod
     def generate_posts(self, profile: Profile, topic: str | None, count: int) -> list[Post]:
+        pass
+
+    @abstractmethod
+    def extract_image_keywords(self, topic: str | None, content: str) -> str:
         pass
 
 
@@ -74,6 +87,15 @@ class OpenAIService(AIService):
         raw = response.choices[0].message.content or ""
         return _parse_posts(raw, profile, topic, count)
 
+    def extract_image_keywords(self, topic: str | None, content: str) -> str:
+        response = self._client.chat.completions.create(
+            model=self._model,
+            messages=[{"role": "user", "content": _keywords_prompt(topic, content)}],
+            temperature=0.3,
+            max_tokens=20,
+        )
+        return (response.choices[0].message.content or "").strip()
+
 
 class AnthropicService(AIService):
     def __init__(self) -> None:
@@ -90,6 +112,15 @@ class AnthropicService(AIService):
         text_blocks = [b for b in response.content if isinstance(b, anthropic.types.TextBlock)]
         raw = text_blocks[0].text if text_blocks else ""
         return _parse_posts(raw, profile, topic, count)
+
+    def extract_image_keywords(self, topic: str | None, content: str) -> str:
+        response = self._client.messages.create(
+            model=self._model,
+            max_tokens=20,
+            messages=[{"role": "user", "content": _keywords_prompt(topic, content)}],
+        )
+        text_blocks = [b for b in response.content if isinstance(b, anthropic.types.TextBlock)]
+        return text_blocks[0].text.strip() if text_blocks else ""
 
 
 def get_ai_service() -> AIService:
