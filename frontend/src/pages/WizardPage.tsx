@@ -113,28 +113,39 @@ function PhraseStep({
   )
 }
 
+const MAX_IMAGES = 4
+
 function ImageStep({
   images,
+  pinnedImages,
   loading,
   error,
   selectedId,
   onSelect,
   onRegenerate,
+  onTogglePin,
 }: {
   images: ImageCandidate[]
+  pinnedImages: ImageCandidate[]
   loading: boolean
   error: string | null
   selectedId: string | null
   onSelect: (image: ImageCandidate) => void
   onRegenerate: () => void
+  onTogglePin: (image: ImageCandidate) => void
 }) {
+  const pinnedIds = new Set(pinnedImages.map(image => image.id))
+  const displayed = [...pinnedImages, ...images.filter(image => !pinnedIds.has(image.id))]
+  const allPinned = pinnedImages.length >= MAX_IMAGES
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <StepHeader step={2} title="Escolha a imagem de fundo" />
         <button
           onClick={onRegenerate}
-          disabled={loading}
+          disabled={loading || allPinned}
+          title={allPinned ? 'Todas as imagens já estão fixadas' : undefined}
           className="bg-gray-100 hover:bg-gray-200 disabled:opacity-50 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap"
         >
           🔄 Gerar novas opções
@@ -156,21 +167,46 @@ function ImageStep({
 
       {!loading && (
         <div className="grid grid-cols-2 gap-4">
-          {images.map(image => (
-            <button
-              key={image.id}
-              onClick={() => onSelect(image)}
-              className={`aspect-square rounded-lg overflow-hidden border-4 transition-colors ${
-                selectedId === image.id ? 'border-violet-600' : 'border-transparent hover:border-violet-200'
-              }`}
-            >
-              <img
-                src={image.thumb_url}
-                alt="Opção de imagem de fundo"
-                className="w-full h-full object-cover"
-              />
-            </button>
-          ))}
+          {displayed.map(image => {
+            const isPinned = pinnedIds.has(image.id)
+            return (
+              <div key={image.id} className="relative">
+                <button
+                  onClick={() => onSelect(image)}
+                  className={`w-full aspect-square rounded-lg overflow-hidden border-4 transition-colors ${
+                    selectedId === image.id
+                      ? 'border-violet-600'
+                      : isPinned
+                        ? 'border-amber-400'
+                        : 'border-transparent hover:border-violet-200'
+                  }`}
+                >
+                  <img
+                    src={image.thumb_url}
+                    alt="Opção de imagem de fundo"
+                    className="w-full h-full object-cover"
+                  />
+                </button>
+                <button
+                  onClick={e => {
+                    e.stopPropagation()
+                    onTogglePin(image)
+                  }}
+                  title={isPinned ? 'Remover fixação' : 'Fixar esta imagem'}
+                  className={`absolute top-2 right-2 w-8 h-8 rounded-full flex items-center justify-center text-sm transition-colors ${
+                    isPinned ? 'bg-amber-400 text-white' : 'bg-white/80 text-gray-600 hover:bg-white'
+                  }`}
+                >
+                  📌
+                </button>
+                {isPinned && (
+                  <span className="absolute bottom-2 left-2 bg-amber-400 text-white text-xs px-2 py-0.5 rounded-full">
+                    Fixada
+                  </span>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
@@ -428,6 +464,7 @@ export function WizardPage() {
   const [imagesLoading, setImagesLoading] = useState(false)
   const [imagesError, setImagesError] = useState<string | null>(null)
   const [selectedImage, setSelectedImage] = useState<ImageCandidate | null>(null)
+  const [pinnedImages, setPinnedImages] = useState<ImageCandidate[]>([])
 
   const [options, setOptions] = useState<WizardOptions | null>(null)
   const [font, setFont] = useState<string | null>(null)
@@ -467,11 +504,16 @@ export function WizardPage() {
     }
   }
 
-  async function fetchImages(forPhrase: string) {
+  async function fetchImages(forPhrase: string, pinned: ImageCandidate[]) {
+    const remaining = MAX_IMAGES - pinned.length
+    if (remaining <= 0) {
+      setImages([])
+      return
+    }
     setImagesError(null)
     setImagesLoading(true)
     try {
-      const { images: candidates } = await api.wizard.images(forPhrase)
+      const { images: candidates } = await api.wizard.images(forPhrase, remaining)
       setImages(candidates)
     } catch (err) {
       setImagesError(err instanceof Error ? err.message : 'Erro ao buscar imagens.')
@@ -484,8 +526,19 @@ export function WizardPage() {
     if (!selected) return
     setPhrase(selected)
     setSelectedImage(null)
+    setPinnedImages([])
     setStep(2)
-    fetchImages(selected)
+    fetchImages(selected, [])
+  }
+
+  function handleTogglePin(image: ImageCandidate) {
+    setPinnedImages(prev =>
+      prev.some(p => p.id === image.id)
+        ? prev.filter(p => p.id !== image.id)
+        : prev.length < MAX_IMAGES
+          ? [...prev, image]
+          : prev
+    )
   }
 
   function handleSelectImage(image: ImageCandidate) {
@@ -585,6 +638,7 @@ export function WizardPage() {
     setPhrase('')
     setImages([])
     setSelectedImage(null)
+    setPinnedImages([])
     setFont(null)
     setPreviews([])
     setBatchId(null)
@@ -618,11 +672,13 @@ export function WizardPage() {
       {step === 2 && (
         <ImageStep
           images={images}
+          pinnedImages={pinnedImages}
           loading={imagesLoading}
           error={imagesError}
           selectedId={selectedImage?.id ?? null}
           onSelect={handleSelectImage}
-          onRegenerate={() => fetchImages(phrase)}
+          onRegenerate={() => fetchImages(phrase, pinnedImages)}
+          onTogglePin={handleTogglePin}
         />
       )}
 
