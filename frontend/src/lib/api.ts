@@ -54,11 +54,14 @@ export const api = {
         body: JSON.stringify({ phrase, count }),
       }),
     options: () => request<WizardOptions>('/api/wizard/options'),
-    previews: (phrase: string, image_id: string, font: string) =>
-      request<PreviewsResult>('/api/wizard/previews', {
-        method: 'POST',
-        body: JSON.stringify({ phrase, image_id, font }),
-      }),
+    previews: (body: {
+      phrase: string
+      image_id: string
+      font: string
+      count?: number
+      batch_id?: string | null
+      exclude_labels?: string[]
+    }) => request<PreviewsResult>('/api/wizard/previews', { method: 'POST', body: JSON.stringify(body) }),
     adjust: (body: {
       batch_id: string
       token: string

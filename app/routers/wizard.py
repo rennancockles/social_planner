@@ -1,6 +1,7 @@
 import logging
+import random
 import uuid
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator
@@ -13,6 +14,7 @@ from app.image_service import (
     FONTS,
     MEDIA_DIR,
     STYLE_LABELS,
+    STYLE_PRESETS,
     compose_wizard_image,
     resolve_overrides,
 )
@@ -24,6 +26,7 @@ router = APIRouter(prefix="/api/wizard", tags=["wizard"])
 
 _MAX_PHRASE_LENGTH = 120
 _MAX_INSTRUCTION_LENGTH = 300
+_PREVIEW_COUNT = 4
 
 
 def _require_profile(session: Session) -> Profile:
@@ -107,6 +110,9 @@ class PreviewsRequest(BaseModel):
     phrase: str
     image_id: str
     font: str
+    count: int = _PREVIEW_COUNT
+    batch_id: str | None = None
+    exclude_labels: list[str] = []
 
     @field_validator("phrase")
     @classmethod
@@ -124,6 +130,7 @@ class StylePreview(BaseModel):
     label: str
     image_path: str
     token: str
+    overrides: dict[str, Any]
 
 
 class PreviewsResponse(BaseModel):
@@ -216,9 +223,14 @@ def suggest_wizard_images(
     body: ImagesRequest,
     session: Session = Depends(get_session),
 ) -> ImagesResponse:
+    """Translates the (often long, Portuguese) phrase into short English keywords before
+    hitting Unsplash — searching on the raw phrase matches a tiny, near-identical pool of
+    photos, which is why 'gerar novas opções' kept surfacing the same handful of results."""
     _require_profile(session)
     try:
-        candidates = suggest_images(body.phrase, body.count)
+        keywords = get_ai_service().extract_image_keywords(None, body.phrase)
+        query = keywords or body.phrase
+        candidates = suggest_images(query, body.count)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Erro ao buscar imagens: {e}") from e
     return ImagesResponse(images=[ImageCandidate(**c) for c in candidates])
@@ -237,36 +249,56 @@ def generate_previews(
     body: PreviewsRequest,
     session: Session = Depends(get_session),
 ) -> PreviewsResponse:
-    """Render the phrase+font combo in every overlay style on the chosen background, so
-    the user picks among the actual final-looking images instead of plain style labels."""
+    """Render the phrase+font combo using a random sample of curated style presets (base
+    style + a tasteful overrides bundle — see STYLE_PRESETS), so the user picks among
+    actual final-looking images that vary each time instead of the same 4 plain defaults.
+
+    If batch_id is given, reuses that batch's already-cached background (no new Unsplash
+    hit) — used when the user asks for more options after pinning some previews, so
+    pinned tokens from the earlier call stay valid and intact."""
     _require_profile(session)
-    try:
-        image_bytes = fetch_image_bytes_by_id(body.image_id)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Erro ao buscar imagem: {e}") from e
 
-    batch_id = uuid.uuid4().hex
-    # Cache the raw background so later /adjust rounds re-render without hitting Unsplash again.
-    (MEDIA_DIR / f"{_bg_filename(batch_id)}.png").write_bytes(image_bytes)
-
-    try:
-        previews = [
-            StylePreview(
-                key=style_key,
-                label=label,
-                token=_preview_filename(batch_id, style_key),
-                image_path=str(
-                    compose_wizard_image(
-                        _preview_filename(batch_id, style_key),
-                        image_bytes,
-                        body.phrase,
-                        body.font,
-                        style_key,
-                    )
-                ),
+    if body.batch_id:
+        bg_path = MEDIA_DIR / f"{_bg_filename(body.batch_id)}.png"
+        if not bg_path.exists():
+            raise HTTPException(
+                status_code=400,
+                detail="Sessão expirada. Volte e escolha a imagem novamente.",
             )
-            for style_key, label in STYLE_LABELS.items()
-        ]
+        batch_id = body.batch_id
+        image_bytes = bg_path.read_bytes()
+    else:
+        try:
+            image_bytes = fetch_image_bytes_by_id(body.image_id)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Erro ao buscar imagem: {e}") from e
+        batch_id = uuid.uuid4().hex
+        # Cache the raw background so later /adjust and /previews rounds re-render
+        # without hitting Unsplash again.
+        (MEDIA_DIR / f"{_bg_filename(batch_id)}.png").write_bytes(image_bytes)
+
+    available = [p for p in STYLE_PRESETS if p["label"] not in body.exclude_labels] or STYLE_PRESETS
+    count = max(min(body.count, len(available)), 0)
+    presets = random.sample(available, k=count)
+
+    try:
+        previews = []
+        for preset in presets:
+            style_key = cast(str, preset["style"])
+            preset_overrides = cast(dict[str, Any], preset["overrides"])
+            token = _preview_filename(batch_id, uuid.uuid4().hex[:8])
+            image_path = compose_wizard_image(
+                token, image_bytes, body.phrase, body.font, style_key, overrides=preset_overrides
+            )
+            previews.append(
+                StylePreview(
+                    key=style_key,
+                    label=cast(str, preset["label"]),
+                    token=token,
+                    overrides=preset_overrides,
+                    image_path=str(image_path),
+                )
+            )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Erro ao montar as prévias: {e}") from e
 

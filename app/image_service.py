@@ -512,6 +512,102 @@ STYLE_LABELS = {
 }
 DEFAULT_STYLE_KEY = "minimal"
 
+# Curated looks (base style + a tasteful bundle of the overrides above) — sampled
+# randomly for the wizard's style-preview step so it doesn't render the same 4 plain
+# defaults every time. Curated rather than fully random per-knob, so every combination
+# still reads clearly (legible text, no color clashing with the overlay text).
+STYLE_PRESETS: list[dict[str, object]] = [
+    {"style": "minimal", "label": "Clássico", "overrides": {}},
+    {"style": "box", "label": "Caixa Creme", "overrides": {}},
+    {"style": "bottom_dark", "label": "Gradiente Noturno", "overrides": {}},
+    {"style": "light_border", "label": "Vidro Fosco", "overrides": {}},
+    {
+        "style": "box",
+        "label": "Vintage Sépia",
+        "overrides": {
+            "bg_sepia": True,
+            "box_color": "#3a2b1d",
+            "box_opacity": 180,
+            "text_color": "#f4e4bc",
+            "accent_color": "#d8c39f",
+        },
+    },
+    {
+        "style": "minimal",
+        "label": "Preto e Branco Dramático",
+        "overrides": {"bg_grayscale": True, "bg_contrast": 1.3, "text_shadow_opacity": 230},
+    },
+    {
+        "style": "bottom_dark",
+        "label": "Pôr do Sol Quente",
+        "overrides": {"bg_warmth": 0.6, "bg_saturation": 1.3, "box_opacity": 140},
+    },
+    {
+        "style": "light_border",
+        "label": "Pastel Suave",
+        "overrides": {
+            "bg_saturation": 0.6,
+            "bg_brightness": 1.15,
+            "box_color": "#fef6f0",
+            "box_radius": 30,
+            "text_color": "#5a4a42",
+        },
+    },
+    {
+        "style": "box",
+        "label": "Contraste Ousado",
+        "overrides": {
+            "box_opacity": 255,
+            "box_color": "#111111",
+            "text_color": "#ffffff",
+            "accent_color": "#ffd166",
+        },
+    },
+    {
+        "style": "minimal",
+        "label": "Azul Frio Cinematográfico",
+        "overrides": {"bg_warmth": -0.5, "bg_contrast": 1.2, "text_shadow_opacity": 220},
+    },
+    {
+        "style": "box",
+        "label": "Caixa Arredondada Moderna",
+        "overrides": {
+            "box_radius": 40,
+            "box_width_pct": 0.8,
+            "box_color": "#ffffff",
+            "box_opacity": 235,
+            "text_color": "#1a1a1a",
+            "accent_color": "#1a1a1a",
+        },
+    },
+    {
+        "style": "bottom_dark",
+        "label": "Desfoque Suave",
+        "overrides": {"bg_blur": 6, "box_opacity": 200},
+    },
+    {
+        "style": "light_border",
+        "label": "Dourado Elegante",
+        "overrides": {"accent_color": "#c9a227", "box_color": "#fffdf5", "text_color": "#2b2b2b"},
+    },
+    {
+        "style": "minimal",
+        "label": "Vibrante",
+        "overrides": {"bg_saturation": 1.6, "bg_brightness": 1.1, "bg_contrast": 1.15},
+    },
+    {
+        "style": "minimal",
+        "label": "Golden Hour",
+        "overrides": {
+            "bg_warmth": 0.75,
+            "bg_saturation": 1.15,
+            "bg_brightness": 1.1,
+            "text_color": "#fff4dc",
+            "text_shadow_opacity": 180,
+        },
+    },
+]
+
 
 # ── public API ────────────────────────────────────────────────────────────────
 

@@ -253,20 +253,40 @@ function FontStyleStep({
 
 function StylePreviewStep({
   previews,
+  pinnedPreviews,
   loading,
   error,
-  selectedKey,
+  selectedToken,
   onSelect,
+  onRegenerate,
+  onTogglePin,
 }: {
   previews: StylePreview[]
+  pinnedPreviews: StylePreview[]
   loading: boolean
   error: string | null
-  selectedKey: string | null
+  selectedToken: string | null
   onSelect: (preview: StylePreview) => void
+  onRegenerate: () => void
+  onTogglePin: (preview: StylePreview) => void
 }) {
+  const pinnedTokens = new Set(pinnedPreviews.map(p => p.token))
+  const displayed = [...pinnedPreviews, ...previews.filter(p => !pinnedTokens.has(p.token))]
+  const allPinned = pinnedPreviews.length >= MAX_IMAGES
+
   return (
     <div>
-      <StepHeader step={4} title="Escolha o estilo da arte final" />
+      <div className="flex items-center justify-between mb-6">
+        <StepHeader step={4} title="Escolha o estilo da arte final" />
+        <button
+          onClick={onRegenerate}
+          disabled={loading || allPinned}
+          title={allPinned ? 'Todas as prévias já estão fixadas' : undefined}
+          className="bg-gray-100 hover:bg-gray-200 disabled:opacity-50 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap"
+        >
+          🔄 Gerar novas opções
+        </button>
+      </div>
 
       {error && (
         <div className="mb-6 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
@@ -283,24 +303,44 @@ function StylePreviewStep({
 
       {!loading && (
         <div className="grid grid-cols-2 gap-4">
-          {previews.map(preview => (
-            <button
-              key={preview.key}
-              onClick={() => onSelect(preview)}
-              className={`rounded-lg overflow-hidden border-4 transition-colors ${
-                selectedKey === preview.key
-                  ? 'border-violet-600'
-                  : 'border-transparent hover:border-violet-200'
-              }`}
-            >
-              <img
-                src={`${API_URL}/${preview.image_path}`}
-                alt={preview.label}
-                className="w-full aspect-square object-cover"
-              />
-              <span className="block bg-gray-50 text-sm text-gray-700 py-1.5">{preview.label}</span>
-            </button>
-          ))}
+          {displayed.map(preview => {
+            const isPinned = pinnedTokens.has(preview.token)
+            return (
+              <div key={preview.token} className="relative">
+                <button
+                  onClick={() => onSelect(preview)}
+                  className={`w-full rounded-lg overflow-hidden border-4 transition-colors ${
+                    selectedToken === preview.token
+                      ? 'border-violet-600'
+                      : isPinned
+                        ? 'border-amber-400'
+                        : 'border-transparent hover:border-violet-200'
+                  }`}
+                >
+                  <img
+                    src={`${API_URL}/${preview.image_path}`}
+                    alt={preview.label}
+                    className="w-full aspect-square object-cover"
+                  />
+                  <span className="block bg-gray-50 text-sm text-gray-700 py-1.5">
+                    {preview.label}
+                  </span>
+                </button>
+                <button
+                  onClick={e => {
+                    e.stopPropagation()
+                    onTogglePin(preview)
+                  }}
+                  title={isPinned ? 'Remover fixação' : 'Fixar esta prévia'}
+                  className={`absolute top-2 right-2 w-8 h-8 rounded-full flex items-center justify-center text-sm transition-colors ${
+                    isPinned ? 'bg-amber-400 text-white' : 'bg-white/80 text-gray-600 hover:bg-white'
+                  }`}
+                >
+                  📌
+                </button>
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
@@ -470,6 +510,7 @@ export function WizardPage() {
   const [font, setFont] = useState<string | null>(null)
 
   const [previews, setPreviews] = useState<StylePreview[]>([])
+  const [pinnedPreviews, setPinnedPreviews] = useState<StylePreview[]>([])
   const [batchId, setBatchId] = useState<string | null>(null)
   const [previewsLoading, setPreviewsLoading] = useState(false)
   const [previewsError, setPreviewsError] = useState<string | null>(null)
@@ -532,13 +573,15 @@ export function WizardPage() {
   }
 
   function handleTogglePin(image: ImageCandidate) {
-    setPinnedImages(prev =>
-      prev.some(p => p.id === image.id)
-        ? prev.filter(p => p.id !== image.id)
-        : prev.length < MAX_IMAGES
-          ? [...prev, image]
-          : prev
-    )
+    const isPinned = pinnedImages.some(p => p.id === image.id)
+    if (isPinned) {
+      setPinnedImages(prev => prev.filter(p => p.id !== image.id))
+      // "images" may have been fully replaced by a regenerate cycle since this was
+      // pinned — add it back so unpinning doesn't make it vanish from the grid.
+      setImages(prev => (prev.some(p => p.id === image.id) ? prev : [...prev, image]))
+    } else if (pinnedImages.length < MAX_IMAGES) {
+      setPinnedImages(prev => [...prev, image])
+    }
   }
 
   function handleSelectImage(image: ImageCandidate) {
@@ -546,19 +589,28 @@ export function WizardPage() {
     setStep(3)
   }
 
-  async function handleSelectFont(key: string) {
+  async function loadPreviews(
+    fontKey: string,
+    pinned: StylePreview[],
+    reuseBatchId: string | null
+  ) {
     if (!selectedImage) return
-    setFont(key)
-    setStep(4)
-    setSelectedPreview(null)
+    const remaining = MAX_IMAGES - pinned.length
+    if (remaining <= 0) {
+      setPreviews([])
+      return
+    }
     setPreviewsError(null)
     setPreviewsLoading(true)
     try {
-      const { batch_id, previews: rendered } = await api.wizard.previews(
+      const { batch_id, previews: rendered } = await api.wizard.previews({
         phrase,
-        selectedImage.id,
-        key
-      )
+        image_id: selectedImage.id,
+        font: fontKey,
+        count: remaining,
+        batch_id: reuseBatchId,
+        exclude_labels: pinned.map(p => p.label),
+      })
       setBatchId(batch_id)
       setPreviews(rendered)
     } catch (err) {
@@ -568,11 +620,38 @@ export function WizardPage() {
     }
   }
 
+  function handleSelectFont(key: string) {
+    if (!selectedImage) return
+    setFont(key)
+    setStep(4)
+    setSelectedPreview(null)
+    setPinnedPreviews([])
+    setBatchId(null)
+    loadPreviews(key, [], null)
+  }
+
+  function handleRegeneratePreviews() {
+    if (!font) return
+    loadPreviews(font, pinnedPreviews, batchId)
+  }
+
+  function handleTogglePinPreview(preview: StylePreview) {
+    const isPinned = pinnedPreviews.some(p => p.token === preview.token)
+    if (isPinned) {
+      setPinnedPreviews(prev => prev.filter(p => p.token !== preview.token))
+      // "previews" may have been fully replaced by a regenerate cycle since this was
+      // pinned — add it back so unpinning doesn't make it vanish from the grid.
+      setPreviews(prev => (prev.some(p => p.token === preview.token) ? prev : [...prev, preview]))
+    } else if (pinnedPreviews.length < MAX_IMAGES) {
+      setPinnedPreviews(prev => [...prev, preview])
+    }
+  }
+
   function handleSelectStyle(preview: StylePreview) {
     setSelectedPreview(preview)
     setCurrentToken(preview.token)
     setCurrentImagePath(preview.image_path)
-    setOverrides({})
+    setOverrides(preview.overrides)
     setCompareCandidate(null)
     setInstruction('')
     setStep(5)
@@ -641,6 +720,7 @@ export function WizardPage() {
     setPinnedImages([])
     setFont(null)
     setPreviews([])
+    setPinnedPreviews([])
     setBatchId(null)
     setSelectedPreview(null)
     setCurrentToken(null)
@@ -696,10 +776,13 @@ export function WizardPage() {
       {step === 4 && (
         <StylePreviewStep
           previews={previews}
+          pinnedPreviews={pinnedPreviews}
           loading={previewsLoading}
           error={previewsError}
-          selectedKey={selectedPreview?.key ?? null}
+          selectedToken={selectedPreview?.token ?? null}
           onSelect={handleSelectStyle}
+          onRegenerate={handleRegeneratePreviews}
+          onTogglePin={handleTogglePinPreview}
         />
       )}
 

@@ -39,19 +39,20 @@ export interface ImageCandidate {
   thumb_url: string
 }
 
+export type StyleOverrides = Record<string, string | number | boolean>
+
 export interface StylePreview {
   key: string
   label: string
   image_path: string
   token: string
+  overrides: StyleOverrides
 }
 
 export interface PreviewsResult {
   batch_id: string
   previews: StylePreview[]
 }
-
-export type StyleOverrides = Record<string, string | number>
 
 export interface AdjustResult {
   token: string
