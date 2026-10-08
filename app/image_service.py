@@ -1,3 +1,4 @@
+import math
 import random
 import re
 from io import BytesIO
@@ -12,7 +13,9 @@ from app.image_search import search_image
 ASSETS_DIR = Path("assets")
 MEDIA_DIR = Path("media")
 IMAGE_SIZE = 1080
+_MAX_ALPHA = 255
 WATERMARK = "@stephanie_thuller"
+WATERMARK_IMAGE_PATH = ASSETS_DIR / "watermark.png"
 
 FONTS = {
     "playfair": {
@@ -29,6 +32,11 @@ FONTS = {
         "regular": ASSETS_DIR / "fonts" / "Caveat.ttf",
         "italic": ASSETS_DIR / "fonts" / "Caveat.ttf",
         "label": "Caveat (manuscrita)",
+    },
+    "alex_brush": {
+        "regular": ASSETS_DIR / "fonts" / "AlexBrush.ttf",
+        "italic": ASSETS_DIR / "fonts" / "AlexBrush.ttf",
+        "label": "Alex Brush (caligrafia elegante)",
     },
 }
 DEFAULT_FONT_KEY = "playfair"
@@ -128,6 +136,79 @@ def _ov_bool(overrides: dict[str, object], key: str, default: bool) -> bool:
     return value if isinstance(value, bool) else default
 
 
+def _resolve_align(overrides: dict[str, object]) -> str:
+    return "left" if overrides.get("text_align") == "left" else "center"
+
+
+def _line_x(align: str, line_w: int, left: int, center: int) -> int:
+    return left if align == "left" else center - line_w // 2
+
+
+def _draw_star(
+    draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, fill: tuple[int, ...]
+) -> None:
+    points = []
+    for i in range(10):
+        angle = math.pi / 2 + i * math.pi / 5
+        radius = r if i % 2 == 0 else r * 0.45
+        points.append((cx + radius * math.cos(angle), cy - radius * math.sin(angle)))
+    draw.polygon(points, fill=fill)
+
+
+def _draw_heart(
+    draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, fill: tuple[int, ...]
+) -> None:
+    draw.ellipse([cx - r, cy - r, cx, cy + r * 0.2], fill=fill)
+    draw.ellipse([cx, cy - r, cx + r, cy + r * 0.2], fill=fill)
+    draw.polygon([(cx - r, cy), (cx + r, cy), (cx, cy + r * 1.3)], fill=fill)
+
+
+def _draw_accents(
+    draw: ImageDraw.ImageDraw,
+    overrides: dict[str, object],
+    box: tuple[float, float, float, float],
+    color: tuple[int, int, int],
+) -> None:
+    """Small decorative stars/hearts flanking the quote text, drawn as plain shapes (not
+    font glyphs — most of our fonts don't actually carry ★/♥ glyphs, they'd render as
+    tofu boxes)."""
+    kind = overrides.get("accent_decoration")
+    if kind not in ("stars", "hearts"):
+        return
+    x0, y0, x1, y1 = box
+    draw_fn = _draw_star if kind == "stars" else _draw_heart
+    fill = (*color, 230)
+    draw_fn(draw, x0 - 26, y0 - 22, 15, fill)
+    draw_fn(draw, x1 + 24, y1 + 16, 15, fill)
+
+
+def _draw_watermark_mark(
+    overlay: Image.Image,
+    draw: ImageDraw.ImageDraw,
+    cx: int,
+    y: int,
+    font_key: str,
+    size: int,
+    rgb: tuple[int, int, int],
+    alpha: int,
+) -> None:
+    """Draws the brand watermark centered at (cx, y) — the real logo image if
+    assets/watermark.png has been provided, else the classic "@handle" text."""
+    if WATERMARK_IMAGE_PATH.exists():
+        logo = Image.open(WATERMARK_IMAGE_PATH).convert("RGBA")
+        target_h = 52
+        scale = target_h / logo.height
+        logo = logo.resize((max(1, int(logo.width * scale)), target_h))
+        if alpha < _MAX_ALPHA:
+            logo.putalpha(logo.getchannel("A").point(lambda a: a * alpha // _MAX_ALPHA))
+        overlay.alpha_composite(logo, (cx - logo.width // 2, y))
+    else:
+        wm_font = _font(size, font_key=font_key)
+        bbox = wm_font.getbbox(WATERMARK)
+        w = int(bbox[2] - bbox[0])
+        draw.text((cx - w // 2, y), WATERMARK, font=wm_font, fill=(*rgb, alpha))
+
+
 def _apply_background_adjustments(bg: Image.Image, overrides: dict[str, object]) -> Image.Image:
     """Continuous, composable background edits (not a closed filter list) — the AI picks
     which of these to set and by how much, so any photo-editing request it can reason
@@ -182,6 +263,9 @@ STYLE_DEFAULTS: dict[str, dict[str, object]] = {
         "watermark_color": "#50281e",
         "watermark_opacity": 200,
         "watermark_size": 28,
+        "text_align": "center",
+        "text_uppercase": False,
+        "accent_decoration": "none",
     },
     "bottom_dark": {
         "box_opacity": 180,
@@ -193,6 +277,9 @@ STYLE_DEFAULTS: dict[str, dict[str, object]] = {
         "watermark_color": "#dcdcdc",
         "watermark_opacity": 200,
         "watermark_size": 30,
+        "text_align": "center",
+        "text_uppercase": False,
+        "accent_decoration": "none",
     },
     "light_border": {
         "box_color": "#ffffff",
@@ -207,6 +294,9 @@ STYLE_DEFAULTS: dict[str, dict[str, object]] = {
         "watermark_color": "#785046",
         "watermark_opacity": 200,
         "watermark_size": 26,
+        "text_align": "center",
+        "text_uppercase": False,
+        "accent_decoration": "none",
     },
     "minimal": {
         "text_color": "#ffffff",
@@ -217,6 +307,9 @@ STYLE_DEFAULTS: dict[str, dict[str, object]] = {
         "watermark_color": "#f0f0f0",
         "watermark_opacity": 200,
         "watermark_size": 30,
+        "text_align": "center",
+        "text_uppercase": False,
+        "accent_decoration": "none",
     },
 }
 
@@ -260,6 +353,9 @@ def _style_box(
     box_width_pct = _ov_float(ov, "box_width_pct", cast(float, d["box_width_pct"]), 0.4, 0.95)
     accent_rgb = _ov_color(ov, "accent_color", cast(str, d["accent_color"]))
     text_rgb = _ov_color(ov, "text_color", cast(str, d["text_color"]))
+    align = _resolve_align(ov)
+    if _ov_bool(ov, "text_uppercase", cast(bool, d["text_uppercase"])):
+        text = text.upper()
 
     pad = 60
     box_w = int(IMAGE_SIZE * box_width_pct)
@@ -291,22 +387,25 @@ def _style_box(
     y = by + pad
     bbox0 = font.getbbox(lines[0])
     line_h = int(bbox0[3] - bbox0[1])
+    max_line_w = 0
     for line in lines:
         lbbox = font.getbbox(line)
         lw2 = int(lbbox[2] - lbbox[0])
-        x = bx + (box_w - lw2) // 2
+        max_line_w = max(max_line_w, lw2)
+        x = _line_x(align, lw2, bx + pad, bx + box_w // 2)
         draw.text((x, y), line, font=font, fill=(*text_rgb, 255))
         y += line_h + spacing
+
+    text_left = bx + pad if align == "left" else bx + (box_w - max_line_w) // 2
+    _draw_accents(draw, ov, (text_left, by + pad, text_left + max_line_w, y - spacing), text_rgb)
 
     if watermark:
         wm_rgb = _ov_color(ov, "watermark_color", cast(str, d["watermark_color"]))
         wm_alpha = _ov_int(ov, "watermark_opacity", cast(int, d["watermark_opacity"]), 0, 255)
         wm_size = _ov_int(ov, "watermark_size", cast(int, d["watermark_size"]), 14, 60)
-        wm_font = _font(wm_size, font_key=font_key)
-        wm_bbox = wm_font.getbbox(WATERMARK)
-        wm_w = int(wm_bbox[2] - wm_bbox[0])
-        wx = bx + (box_w - wm_w) // 2
-        draw.text((wx, by + box_h + 16), WATERMARK, font=wm_font, fill=(*wm_rgb, wm_alpha))
+        _draw_watermark_mark(
+            overlay, draw, bx + box_w // 2, by + box_h + 16, font_key, wm_size, wm_rgb, wm_alpha
+        )
 
     return Image.alpha_composite(out, overlay).convert("RGB")
 
@@ -327,6 +426,9 @@ def _style_bottom_dark(
     d = STYLE_DEFAULTS["bottom_dark"]
     peak_alpha = _ov_int(ov, "box_opacity", cast(int, d["box_opacity"]), 0, 255)
     text_rgb = _ov_color(ov, "text_color", cast(str, d["text_color"]))
+    align = _resolve_align(ov)
+    if _ov_bool(ov, "text_uppercase", cast(bool, d["text_uppercase"])):
+        text = text.upper()
 
     grad_h = IMAGE_SIZE // 2
     for i in range(grad_h):
@@ -348,25 +450,29 @@ def _style_bottom_dark(
     line_h = int(bbox0[3] - bbox0[1])
     v_offset = _ov_int(ov, "text_vertical_offset", cast(int, d["text_vertical_offset"]), -200, 200)
     y = IMAGE_SIZE - text_h - (80 if watermark else 55) + v_offset
+    text_top = y
 
+    max_line_w = 0
     for line in lines:
         lbbox = font.getbbox(line)
         lw = int(lbbox[2] - lbbox[0])
-        x = (IMAGE_SIZE - lw) // 2
+        max_line_w = max(max_line_w, lw)
+        x = _line_x(align, lw, pad, IMAGE_SIZE // 2)
         _draw_text_with_shadow(
             draw, (x, y), line, font, fill=(*text_rgb, 255), shadow=(0, 0, 0, shadow_alpha)
         )
         y += line_h + spacing
 
+    text_left = pad if align == "left" else (IMAGE_SIZE - max_line_w) // 2
+    _draw_accents(draw, ov, (text_left, text_top, text_left + max_line_w, y - spacing), text_rgb)
+
     if watermark:
         wm_rgb = _ov_color(ov, "watermark_color", cast(str, d["watermark_color"]))
         wm_alpha = _ov_int(ov, "watermark_opacity", cast(int, d["watermark_opacity"]), 0, 255)
         wm_size = _ov_int(ov, "watermark_size", cast(int, d["watermark_size"]), 14, 60)
-        wm_font = _font(wm_size, font_key=font_key)
-        wm_bbox = wm_font.getbbox(WATERMARK)
-        wm_w = int(wm_bbox[2] - wm_bbox[0])
-        wx = (IMAGE_SIZE - wm_w) // 2
-        draw.text((wx, y + 10), WATERMARK, font=wm_font, fill=(*wm_rgb, wm_alpha))
+        _draw_watermark_mark(
+            overlay, draw, IMAGE_SIZE // 2, y + 10, font_key, wm_size, wm_rgb, wm_alpha
+        )
 
     return Image.alpha_composite(out, overlay).convert("RGB")
 
@@ -392,6 +498,9 @@ def _style_light_border(
     box_width_pct = _ov_float(ov, "box_width_pct", cast(float, d["box_width_pct"]), 0.4, 0.95)
     accent_rgb = _ov_color(ov, "accent_color", cast(str, d["accent_color"]))
     text_rgb = _ov_color(ov, "text_color", cast(str, d["text_color"]))
+    align = _resolve_align(ov)
+    if _ov_bool(ov, "text_uppercase", cast(bool, d["text_uppercase"])):
+        text = text.upper()
 
     pad = 55
     box_w = int(IMAGE_SIZE * box_width_pct)
@@ -418,22 +527,25 @@ def _style_light_border(
     bbox0 = font.getbbox(lines[0])
     line_h = int(bbox0[3] - bbox0[1])
     y = by + pad
+    max_line_w = 0
     for line in lines:
         lbbox = font.getbbox(line)
         lw = int(lbbox[2] - lbbox[0])
-        x = bx + (box_w - lw) // 2
+        max_line_w = max(max_line_w, lw)
+        x = _line_x(align, lw, bx + pad, bx + box_w // 2)
         draw.text((x, y), line, font=font, fill=(*text_rgb, 255))
         y += line_h + spacing
+
+    text_left = bx + pad if align == "left" else bx + (box_w - max_line_w) // 2
+    _draw_accents(draw, ov, (text_left, by + pad, text_left + max_line_w, y - spacing), text_rgb)
 
     if watermark:
         wm_rgb = _ov_color(ov, "watermark_color", cast(str, d["watermark_color"]))
         wm_alpha = _ov_int(ov, "watermark_opacity", cast(int, d["watermark_opacity"]), 0, 255)
         wm_size = _ov_int(ov, "watermark_size", cast(int, d["watermark_size"]), 14, 60)
-        wm_font = _font(wm_size, font_key=font_key)
-        wm_bbox = wm_font.getbbox(WATERMARK)
-        wm_w = int(wm_bbox[2] - wm_bbox[0])
-        wx = bx + (box_w - wm_w) // 2
-        draw.text((wx, y + 6), WATERMARK, font=wm_font, fill=(*wm_rgb, wm_alpha))
+        _draw_watermark_mark(
+            overlay, draw, bx + box_w // 2, y + 6, font_key, wm_size, wm_rgb, wm_alpha
+        )
 
     merged = Image.alpha_composite(blurred, overlay)
     result = Image.alpha_composite(out, Image.new("RGBA", out.size, (0, 0, 0, 0)))
@@ -457,6 +569,9 @@ def _style_minimal(
 
     d = STYLE_DEFAULTS["minimal"]
     text_rgb = _ov_color(ov, "text_color", cast(str, d["text_color"]))
+    align = _resolve_align(ov)
+    if _ov_bool(ov, "text_uppercase", cast(bool, d["text_uppercase"])):
+        text = text.upper()
 
     text_size = _ov_int(ov, "text_size", cast(int, d["text_size"]), 24, 90)
     font = _font(text_size, font_key=font_key)
@@ -469,11 +584,14 @@ def _style_minimal(
     line_h = int(bbox0[3] - bbox0[1])
     v_offset = _ov_int(ov, "text_vertical_offset", cast(int, d["text_vertical_offset"]), -200, 200)
     y = (IMAGE_SIZE - text_h) // 2 + v_offset
+    text_top = y
 
+    max_line_w = 0
     for line in lines:
         lbbox = font.getbbox(line)
         lw = int(lbbox[2] - lbbox[0])
-        x = (IMAGE_SIZE - lw) // 2
+        max_line_w = max(max_line_w, lw)
+        x = _line_x(align, lw, pad, IMAGE_SIZE // 2)
         _draw_text_with_shadow(
             draw,
             (x, y),
@@ -485,15 +603,16 @@ def _style_minimal(
         )
         y += line_h + spacing
 
+    text_left = pad if align == "left" else (IMAGE_SIZE - max_line_w) // 2
+    _draw_accents(draw, ov, (text_left, text_top, text_left + max_line_w, y - spacing), text_rgb)
+
     if watermark:
         wm_rgb = _ov_color(ov, "watermark_color", cast(str, d["watermark_color"]))
         wm_alpha = _ov_int(ov, "watermark_opacity", cast(int, d["watermark_opacity"]), 0, 255)
         wm_size = _ov_int(ov, "watermark_size", cast(int, d["watermark_size"]), 14, 60)
-        wm_font = _font(wm_size, font_key=font_key)
-        wm_bbox = wm_font.getbbox(WATERMARK)
-        wm_w = int(wm_bbox[2] - wm_bbox[0])
-        wx = (IMAGE_SIZE - wm_w) // 2
-        draw.text((wx, IMAGE_SIZE - 55), WATERMARK, font=wm_font, fill=(*wm_rgb, wm_alpha))
+        _draw_watermark_mark(
+            overlay, draw, IMAGE_SIZE // 2, IMAGE_SIZE - 55, font_key, wm_size, wm_rgb, wm_alpha
+        )
 
     return Image.alpha_composite(out, overlay).convert("RGB")
 
@@ -517,6 +636,7 @@ DEFAULT_STYLE_KEY = "minimal"
 # defaults every time. Curated rather than fully random per-knob, so every combination
 # still reads clearly (legible text, no color clashing with the overlay text).
 STYLE_PRESETS: list[dict[str, object]] = [
+    # Presets gerais (variedade) — mantidos por combinarem com a paleta quente/sóbria dela.
     {"style": "minimal", "label": "Clássico", "overrides": {}},
     {"style": "box", "label": "Caixa Creme", "overrides": {}},
     {"style": "bottom_dark", "label": "Gradiente Noturno", "overrides": {}},
@@ -531,11 +651,6 @@ STYLE_PRESETS: list[dict[str, object]] = [
             "text_color": "#f4e4bc",
             "accent_color": "#d8c39f",
         },
-    },
-    {
-        "style": "minimal",
-        "label": "Preto e Branco Dramático",
-        "overrides": {"bg_grayscale": True, "bg_contrast": 1.3, "text_shadow_opacity": 230},
     },
     {
         "style": "bottom_dark",
@@ -554,33 +669,6 @@ STYLE_PRESETS: list[dict[str, object]] = [
         },
     },
     {
-        "style": "box",
-        "label": "Contraste Ousado",
-        "overrides": {
-            "box_opacity": 255,
-            "box_color": "#111111",
-            "text_color": "#ffffff",
-            "accent_color": "#ffd166",
-        },
-    },
-    {
-        "style": "minimal",
-        "label": "Azul Frio Cinematográfico",
-        "overrides": {"bg_warmth": -0.5, "bg_contrast": 1.2, "text_shadow_opacity": 220},
-    },
-    {
-        "style": "box",
-        "label": "Caixa Arredondada Moderna",
-        "overrides": {
-            "box_radius": 40,
-            "box_width_pct": 0.8,
-            "box_color": "#ffffff",
-            "box_opacity": 235,
-            "text_color": "#1a1a1a",
-            "accent_color": "#1a1a1a",
-        },
-    },
-    {
         "style": "bottom_dark",
         "label": "Desfoque Suave",
         "overrides": {"bg_blur": 6, "box_opacity": 200},
@@ -592,11 +680,6 @@ STYLE_PRESETS: list[dict[str, object]] = [
     },
     {
         "style": "minimal",
-        "label": "Vibrante",
-        "overrides": {"bg_saturation": 1.6, "bg_brightness": 1.1, "bg_contrast": 1.15},
-    },
-    {
-        "style": "minimal",
         "label": "Golden Hour",
         "overrides": {
             "bg_warmth": 0.75,
@@ -604,6 +687,64 @@ STYLE_PRESETS: list[dict[str, object]] = [
             "bg_brightness": 1.1,
             "text_color": "#fff4dc",
             "text_shadow_opacity": 180,
+        },
+    },
+    # Modelados diretamente nas referências reais do perfil dela (tmp/Image (1-8).jpeg):
+    # sem caixa, fundo aproximado de papel/neutro, texto alinhado à esquerda — escolha a
+    # fonte "Alex Brush" no passo 3 para reproduzir a caligrafia das imagens 6/7.
+    {
+        "style": "minimal",
+        "label": "Papel Neutro",
+        "overrides": {
+            "bg_saturation": 0.25,
+            "bg_brightness": 1.2,
+            "bg_warmth": 0.15,
+            "bg_blur": 14,
+            "text_color": "#2b2420",
+            "text_align": "left",
+            "text_size": 40,
+            "text_line_spacing": 14,
+            "text_shadow_opacity": 0,
+        },
+    },
+    {
+        "style": "minimal",
+        "label": "Caligrafia Manuscrita",
+        "overrides": {
+            "bg_saturation": 0.3,
+            "bg_brightness": 1.15,
+            "bg_warmth": 0.15,
+            "bg_blur": 16,
+            "text_color": "#1a1a1a",
+            "text_align": "left",
+            "text_size": 46,
+            "text_line_spacing": 10,
+            "text_shadow_opacity": 0,
+        },
+    },
+    {
+        "style": "minimal",
+        "label": "Afirmação Vinho",
+        "overrides": {
+            "bg_saturation": 0.2,
+            "bg_brightness": 1.15,
+            "bg_blur": 18,
+            "text_color": "#5c2a2a",
+            "text_uppercase": True,
+            "text_align": "center",
+            "text_size": 50,
+            "text_shadow_opacity": 0,
+        },
+    },
+    {
+        "style": "minimal",
+        "label": "Legenda com Estrelas",
+        "overrides": {
+            "text_color": "#ffffff",
+            "text_align": "left",
+            "text_size": 62,
+            "text_shadow_opacity": 210,
+            "accent_decoration": "stars",
         },
     },
 ]

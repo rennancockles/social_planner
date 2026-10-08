@@ -120,12 +120,16 @@ atrás do texto, de 0 a 255 (quanto maior, mais opaco)
 - box_width_pct: largura da caixa como fração da imagem, de 0.4 (estreita) a 0.95 (larga)
 - text_color: cor do texto principal (a frase), em hex
 - text_size: tamanho da fonte do texto principal (a frase) em pixels (entre 24 e 90)
+- text_align: alinhamento do texto, "center" ou "left"
+- text_uppercase: true/false — deixa o texto principal em caixa alta
 - text_line_spacing: espaço entre as linhas do texto em pixels (entre 4 e 50)
 - text_vertical_offset: desloca o texto/caixa verticalmente em pixels, de -200 \
 (mais para cima) a 200 (mais para baixo); 0 é centralizado
 - text_shadow_opacity: opacidade da sombra atrás do texto principal, de 0 (sem sombra) \
 a 255 (sombra forte) — só se aplica nos estilos que já têm sombra de texto
 - accent_color: cor de detalhes decorativos (borda, aspas), em hex
+- accent_decoration: "none", "stars" ou "hearts" — pequenos ícones decorativos \
+perto do texto
 - watermark_opacity: opacidade da marca d'água (@usuario), de 0 a 255
 - watermark_color: cor da marca d'água, em hex
 - watermark_size: tamanho da fonte da marca d'água em pixels (entre 14 e 60)

@@ -121,18 +121,22 @@ function ImageStep({
   loading,
   error,
   selectedId,
+  backgroundMode,
   onSelect,
   onRegenerate,
   onTogglePin,
+  onModeChange,
 }: {
   images: ImageCandidate[]
   pinnedImages: ImageCandidate[]
   loading: boolean
   error: string | null
   selectedId: string | null
+  backgroundMode: 'photo' | 'paper'
   onSelect: (image: ImageCandidate) => void
   onRegenerate: () => void
   onTogglePin: (image: ImageCandidate) => void
+  onModeChange: (mode: 'photo' | 'paper') => void
 }) {
   const pinnedIds = new Set(pinnedImages.map(image => image.id))
   const displayed = [...pinnedImages, ...images.filter(image => !pinnedIds.has(image.id))]
@@ -140,7 +144,7 @@ function ImageStep({
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <StepHeader step={2} title="Escolha a imagem de fundo" />
         <button
           onClick={onRegenerate}
@@ -149,6 +153,31 @@ function ImageStep({
           className="bg-gray-100 hover:bg-gray-200 disabled:opacity-50 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap"
         >
           🔄 Gerar novas opções
+        </button>
+      </div>
+
+      <div className="flex gap-2 mb-6">
+        <button
+          onClick={() => onModeChange('photo')}
+          disabled={loading}
+          className={`flex-1 rounded-lg py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
+            backgroundMode === 'photo'
+              ? 'bg-violet-600 text-white'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+          }`}
+        >
+          📷 Fotos
+        </button>
+        <button
+          onClick={() => onModeChange('paper')}
+          disabled={loading}
+          className={`flex-1 rounded-lg py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
+            backgroundMode === 'paper'
+              ? 'bg-violet-600 text-white'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+          }`}
+        >
+          📄 Papel/Textura
         </button>
       </div>
 
@@ -505,6 +534,7 @@ export function WizardPage() {
   const [imagesError, setImagesError] = useState<string | null>(null)
   const [selectedImage, setSelectedImage] = useState<ImageCandidate | null>(null)
   const [pinnedImages, setPinnedImages] = useState<ImageCandidate[]>([])
+  const [backgroundMode, setBackgroundMode] = useState<'photo' | 'paper'>('photo')
 
   const [options, setOptions] = useState<WizardOptions | null>(null)
   const [font, setFont] = useState<string | null>(null)
@@ -545,7 +575,11 @@ export function WizardPage() {
     }
   }
 
-  async function fetchImages(forPhrase: string, pinned: ImageCandidate[]) {
+  async function fetchImages(
+    forPhrase: string,
+    pinned: ImageCandidate[],
+    mode: 'photo' | 'paper'
+  ) {
     const remaining = MAX_IMAGES - pinned.length
     if (remaining <= 0) {
       setImages([])
@@ -554,7 +588,7 @@ export function WizardPage() {
     setImagesError(null)
     setImagesLoading(true)
     try {
-      const { images: candidates } = await api.wizard.images(forPhrase, remaining)
+      const { images: candidates } = await api.wizard.images(forPhrase, remaining, mode)
       setImages(candidates)
     } catch (err) {
       setImagesError(err instanceof Error ? err.message : 'Erro ao buscar imagens.')
@@ -568,8 +602,17 @@ export function WizardPage() {
     setPhrase(selected)
     setSelectedImage(null)
     setPinnedImages([])
+    setBackgroundMode('photo')
     setStep(2)
-    fetchImages(selected, [])
+    fetchImages(selected, [], 'photo')
+  }
+
+  function handleChangeBackgroundMode(mode: 'photo' | 'paper') {
+    if (mode === backgroundMode) return
+    setBackgroundMode(mode)
+    setSelectedImage(null)
+    setPinnedImages([])
+    fetchImages(phrase, [], mode)
   }
 
   function handleTogglePin(image: ImageCandidate) {
@@ -718,6 +761,7 @@ export function WizardPage() {
     setImages([])
     setSelectedImage(null)
     setPinnedImages([])
+    setBackgroundMode('photo')
     setFont(null)
     setPreviews([])
     setPinnedPreviews([])
@@ -756,9 +800,11 @@ export function WizardPage() {
           loading={imagesLoading}
           error={imagesError}
           selectedId={selectedImage?.id ?? null}
+          backgroundMode={backgroundMode}
           onSelect={handleSelectImage}
-          onRegenerate={() => fetchImages(phrase, pinnedImages)}
+          onRegenerate={() => fetchImages(phrase, pinnedImages, backgroundMode)}
           onTogglePin={handleTogglePin}
+          onModeChange={handleChangeBackgroundMode}
         />
       )}
 

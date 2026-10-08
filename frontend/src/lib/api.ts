@@ -48,10 +48,10 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ topic, count }),
       }),
-    images: (phrase: string, count = 4) =>
+    images: (phrase: string, count = 4, backgroundMode: 'photo' | 'paper' = 'photo') =>
       request<{ images: ImageCandidate[] }>('/api/wizard/images', {
         method: 'POST',
-        body: JSON.stringify({ phrase, count }),
+        body: JSON.stringify({ phrase, count, background_mode: backgroundMode }),
       }),
     options: () => request<WizardOptions>('/api/wizard/options'),
     previews: (body: {

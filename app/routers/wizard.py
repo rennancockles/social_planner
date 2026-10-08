@@ -28,6 +28,18 @@ _MAX_PHRASE_LENGTH = 120
 _MAX_INSTRUCTION_LENGTH = 300
 _PREVIEW_COUNT = 4
 
+# Curated search terms for the "paper/texture" background mode — a plain neutral
+# backdrop (images 3/6/7/8 in tmp/) instead of a real-world photo. Varied randomly per
+# request so regenerating gives different textures, not the same query every time.
+_PAPER_TEXTURE_QUERIES = [
+    "paper texture neutral",
+    "beige paper grain texture",
+    "linen fabric texture",
+    "cream canvas texture",
+    "watercolor paper texture",
+    "neutral wall texture",
+]
+
 
 def _require_profile(session: Session) -> Profile:
     profile = ProfileRepository(session).get()
@@ -80,6 +92,14 @@ class PhrasesResponse(BaseModel):
 class ImagesRequest(BaseModel):
     phrase: str
     count: int = 4
+    background_mode: str = "photo"
+
+    @field_validator("background_mode")
+    @classmethod
+    def validate_background_mode(cls, v: str) -> str:
+        if v not in ("photo", "paper"):
+            raise ValueError(f"Modo de fundo inválido: {v!r}")
+        return v
 
 
 class ImageCandidate(BaseModel):
@@ -223,13 +243,18 @@ def suggest_wizard_images(
     body: ImagesRequest,
     session: Session = Depends(get_session),
 ) -> ImagesResponse:
-    """Translates the (often long, Portuguese) phrase into short English keywords before
-    hitting Unsplash — searching on the raw phrase matches a tiny, near-identical pool of
-    photos, which is why 'gerar novas opções' kept surfacing the same handful of results."""
+    """In "photo" mode, translates the (often long, Portuguese) phrase into short English
+    keywords before hitting Unsplash — searching on the raw phrase matches a tiny,
+    near-identical pool of photos, which is why 'gerar novas opções' kept surfacing the
+    same handful of results. In "paper" mode, searches a curated texture query instead —
+    a plain neutral backdrop, not a real-world photo tied to the phrase's content."""
     _require_profile(session)
     try:
-        keywords = get_ai_service().extract_image_keywords(None, body.phrase)
-        query = keywords or body.phrase
+        if body.background_mode == "paper":
+            query = random.choice(_PAPER_TEXTURE_QUERIES)
+        else:
+            keywords = get_ai_service().extract_image_keywords(None, body.phrase)
+            query = keywords or body.phrase
         candidates = suggest_images(query, body.count)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Erro ao buscar imagens: {e}") from e
