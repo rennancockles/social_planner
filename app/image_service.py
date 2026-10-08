@@ -90,17 +90,33 @@ def _font(
 
 
 def _wrap(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
+    """Word-wrap, force-splitting any single word wider than max_width character by
+    character (otherwise it silently overflows the canvas horizontally). Never returns
+    an empty list — callers index lines[0] unconditionally, and a phrase that becomes
+    blank after _clean_overlay_text (e.g. emoji-only input) would otherwise crash them."""
     words = text.split()
+    if not words:
+        return [" "]
     lines: list[str] = []
     current = ""
     for word in words:
-        test = f"{current} {word}".strip()
-        bbox = font.getbbox(test)
-        if bbox[2] > max_width and current:
+        candidate = f"{current} {word}".strip()
+        if font.getbbox(candidate)[2] > max_width and current:
             lines.append(current)
-            current = word
+            current = ""
+            candidate = word
+        if font.getbbox(candidate)[2] > max_width:
+            chunk = ""
+            for ch in candidate:
+                test_chunk = chunk + ch
+                if font.getbbox(test_chunk)[2] > max_width and chunk:
+                    lines.append(chunk)
+                    chunk = ch
+                else:
+                    chunk = test_chunk
+            current = chunk
         else:
-            current = test
+            current = candidate
     if current:
         lines.append(current)
     return lines
@@ -160,6 +176,12 @@ def _ov_float(
 def _ov_bool(overrides: dict[str, object], key: str, default: bool) -> bool:
     value = overrides.get(key)
     return value if isinstance(value, bool) else default
+
+
+def _clamp_top(top: int, content_h: int) -> int:
+    """Keeps a text/box block's top edge on-canvas — text_vertical_offset (±200) combined
+    with a long phrase's content height could otherwise push it off the top or bottom."""
+    return max(0, min(top, IMAGE_SIZE - content_h))
 
 
 def _resolve_align(overrides: dict[str, object]) -> str:
@@ -403,7 +425,7 @@ def _style_box(
     box_h = text_h + pad * 3
     bx = (IMAGE_SIZE - box_w) // 2
     v_offset = _ov_int(ov, "text_vertical_offset", cast(int, d["text_vertical_offset"]), -200, 200)
-    by = (IMAGE_SIZE - box_h) // 2 + v_offset
+    by = _clamp_top((IMAGE_SIZE - box_h) // 2 + v_offset, box_h)
 
     draw.rounded_rectangle(
         [bx, by, bx + box_w, by + box_h], radius=box_radius, fill=(*box_rgb, box_alpha)
@@ -486,7 +508,7 @@ def _style_bottom_dark(
     bbox0 = font.getbbox(lines[0])
     line_h = int(bbox0[3] - bbox0[1])
     v_offset = _ov_int(ov, "text_vertical_offset", cast(int, d["text_vertical_offset"]), -200, 200)
-    y = IMAGE_SIZE - text_h - (80 if watermark else 55) + v_offset
+    y = _clamp_top(IMAGE_SIZE - text_h - (80 if watermark else 55) + v_offset, text_h)
     text_top = y
 
     max_line_w = 0
@@ -554,7 +576,7 @@ def _style_light_border(  # noqa: PLR0915
     box_h = text_h + pad * 2 + (40 if watermark else 0)
     bx = (IMAGE_SIZE - box_w) // 2
     v_offset = _ov_int(ov, "text_vertical_offset", cast(int, d["text_vertical_offset"]), -200, 200)
-    by = (IMAGE_SIZE - box_h) // 2 + v_offset
+    by = _clamp_top((IMAGE_SIZE - box_h) // 2 + v_offset, box_h)
 
     draw.rounded_rectangle(
         [bx, by, bx + box_w, by + box_h], radius=box_radius, fill=(*box_rgb, box_alpha)
@@ -626,7 +648,7 @@ def _style_minimal(
     bbox0 = font.getbbox(lines[0])
     line_h = int(bbox0[3] - bbox0[1])
     v_offset = _ov_int(ov, "text_vertical_offset", cast(int, d["text_vertical_offset"]), -200, 200)
-    y = (IMAGE_SIZE - text_h) // 2 + v_offset
+    y = _clamp_top((IMAGE_SIZE - text_h) // 2 + v_offset, text_h)
     text_top = y
 
     max_line_w = 0

@@ -43,15 +43,19 @@ export const api = {
     delete: (id: number) => request<void>(`/api/posts/${id}`, { method: 'DELETE' }),
   },
   wizard: {
-    phrases: (topic?: string, count = 4) =>
+    phrases: (body: { topic?: string; count?: number }) =>
       request<{ phrases: string[] }>('/api/wizard/phrases', {
         method: 'POST',
-        body: JSON.stringify({ topic, count }),
+        body: JSON.stringify(body),
       }),
-    images: (phrase: string, count = 4, backgroundMode: 'photo' | 'paper' = 'photo') =>
+    images: (body: { phrase: string; count?: number; backgroundMode?: 'photo' | 'paper' }) =>
       request<{ images: ImageCandidate[] }>('/api/wizard/images', {
         method: 'POST',
-        body: JSON.stringify({ phrase, count, background_mode: backgroundMode }),
+        body: JSON.stringify({
+          phrase: body.phrase,
+          count: body.count,
+          background_mode: body.backgroundMode ?? 'photo',
+        }),
       }),
     options: () => request<WizardOptions>('/api/wizard/options'),
     previews: (body: {
@@ -78,6 +82,7 @@ export const api = {
       style: string
       batch_id: string
       token: string
+      overrides: StyleOverrides
     }) => request<Post>('/api/wizard/finalize', { method: 'POST', body: JSON.stringify(body) }),
   },
 }

@@ -33,6 +33,7 @@ class Post(SQLModel, table=True):
     phrase: str | None = None
     font: str | None = None
     overlay_style: str | None = None
+    overrides_json: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 

@@ -11,6 +11,36 @@ import type {
 
 const MAX_PHRASE_LENGTH = 120
 
+/** Shared "pin some, regenerate the rest" bookkeeping for steps 2 (images) and 4 (style
+ * previews): both fetch a batch of candidates, let the user pin up to `max` of them, and
+ * merge pinned + freshly-fetched for display. Unpinning re-adds the item to `items` if a
+ * regenerate cycle since replaced the base list, so it doesn't vanish from the grid. */
+function usePinnableList<T>(getKey: (item: T) => string, max: number) {
+  const [items, setItems] = useState<T[]>([])
+  const [pinned, setPinned] = useState<T[]>([])
+
+  const pinnedKeys = new Set(pinned.map(getKey))
+  const displayed = [...pinned, ...items.filter(item => !pinnedKeys.has(getKey(item)))]
+  const allPinned = pinned.length >= max
+
+  function togglePin(item: T) {
+    const key = getKey(item)
+    if (pinnedKeys.has(key)) {
+      setPinned(prev => prev.filter(p => getKey(p) !== key))
+      setItems(prev => (prev.some(p => getKey(p) === key) ? prev : [...prev, item]))
+    } else if (pinned.length < max) {
+      setPinned(prev => [...prev, item])
+    }
+  }
+
+  function reset() {
+    setItems([])
+    setPinned([])
+  }
+
+  return { items, setItems, pinned, pinnedKeys, displayed, allPinned, togglePin, reset }
+}
+
 const FONT_PREVIEW_CSS: Record<string, string> = {
   playfair: 'serif',
   montserrat: 'sans-serif',
@@ -116,8 +146,9 @@ function PhraseStep({
 const MAX_IMAGES = 4
 
 function ImageStep({
-  images,
-  pinnedImages,
+  displayed,
+  pinnedKeys,
+  allPinned,
   loading,
   error,
   selectedId,
@@ -127,8 +158,9 @@ function ImageStep({
   onTogglePin,
   onModeChange,
 }: {
-  images: ImageCandidate[]
-  pinnedImages: ImageCandidate[]
+  displayed: ImageCandidate[]
+  pinnedKeys: Set<string>
+  allPinned: boolean
   loading: boolean
   error: string | null
   selectedId: string | null
@@ -138,10 +170,6 @@ function ImageStep({
   onTogglePin: (image: ImageCandidate) => void
   onModeChange: (mode: 'photo' | 'paper') => void
 }) {
-  const pinnedIds = new Set(pinnedImages.map(image => image.id))
-  const displayed = [...pinnedImages, ...images.filter(image => !pinnedIds.has(image.id))]
-  const allPinned = pinnedImages.length >= MAX_IMAGES
-
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -197,7 +225,7 @@ function ImageStep({
       {!loading && (
         <div className="grid grid-cols-2 gap-4">
           {displayed.map(image => {
-            const isPinned = pinnedIds.has(image.id)
+            const isPinned = pinnedKeys.has(image.id)
             return (
               <div key={image.id} className="relative">
                 <button
@@ -281,8 +309,9 @@ function FontStyleStep({
 }
 
 function StylePreviewStep({
-  previews,
-  pinnedPreviews,
+  displayed,
+  pinnedKeys,
+  allPinned,
   loading,
   error,
   selectedToken,
@@ -290,8 +319,9 @@ function StylePreviewStep({
   onRegenerate,
   onTogglePin,
 }: {
-  previews: StylePreview[]
-  pinnedPreviews: StylePreview[]
+  displayed: StylePreview[]
+  pinnedKeys: Set<string>
+  allPinned: boolean
   loading: boolean
   error: string | null
   selectedToken: string | null
@@ -299,10 +329,6 @@ function StylePreviewStep({
   onRegenerate: () => void
   onTogglePin: (preview: StylePreview) => void
 }) {
-  const pinnedTokens = new Set(pinnedPreviews.map(p => p.token))
-  const displayed = [...pinnedPreviews, ...previews.filter(p => !pinnedTokens.has(p.token))]
-  const allPinned = pinnedPreviews.length >= MAX_IMAGES
-
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -333,7 +359,7 @@ function StylePreviewStep({
       {!loading && (
         <div className="grid grid-cols-2 gap-4">
           {displayed.map(preview => {
-            const isPinned = pinnedTokens.has(preview.token)
+            const isPinned = pinnedKeys.has(preview.token)
             return (
               <div key={preview.token} className="relative">
                 <button
@@ -529,18 +555,18 @@ export function WizardPage() {
   const [phrasesError, setPhrasesError] = useState<string | null>(null)
   const [phrase, setPhrase] = useState('')
 
-  const [images, setImages] = useState<ImageCandidate[]>([])
+  const imagesList = usePinnableList<ImageCandidate>(img => img.id, MAX_IMAGES)
   const [imagesLoading, setImagesLoading] = useState(false)
   const [imagesError, setImagesError] = useState<string | null>(null)
   const [selectedImage, setSelectedImage] = useState<ImageCandidate | null>(null)
-  const [pinnedImages, setPinnedImages] = useState<ImageCandidate[]>([])
   const [backgroundMode, setBackgroundMode] = useState<'photo' | 'paper'>('photo')
 
   const [options, setOptions] = useState<WizardOptions | null>(null)
+  const [optionsLoading, setOptionsLoading] = useState(false)
+  const [optionsError, setOptionsError] = useState<string | null>(null)
   const [font, setFont] = useState<string | null>(null)
 
-  const [previews, setPreviews] = useState<StylePreview[]>([])
-  const [pinnedPreviews, setPinnedPreviews] = useState<StylePreview[]>([])
+  const previewsList = usePinnableList<StylePreview>(p => p.token, MAX_IMAGES)
   const [batchId, setBatchId] = useState<string | null>(null)
   const [previewsLoading, setPreviewsLoading] = useState(false)
   const [previewsError, setPreviewsError] = useState<string | null>(null)
@@ -558,15 +584,27 @@ export function WizardPage() {
   const [finalizeError, setFinalizeError] = useState<string | null>(null)
   const [result, setResult] = useState<Post | null>(null)
 
+  async function loadOptions() {
+    setOptionsError(null)
+    setOptionsLoading(true)
+    try {
+      setOptions(await api.wizard.options())
+    } catch (err) {
+      setOptionsError(err instanceof Error ? err.message : 'Erro ao carregar opções.')
+    } finally {
+      setOptionsLoading(false)
+    }
+  }
+
   useEffect(() => {
-    api.wizard.options().then(setOptions).catch(() => {})
+    loadOptions()
   }, [])
 
   async function handleFetchPhrases() {
     setPhrasesError(null)
     setPhrasesLoading(true)
     try {
-      const { phrases: suggestions } = await api.wizard.phrases(topic || undefined)
+      const { phrases: suggestions } = await api.wizard.phrases({ topic: topic || undefined })
       setPhrases(suggestions)
     } catch (err) {
       setPhrasesError(err instanceof Error ? err.message : 'Erro ao gerar frases.')
@@ -582,14 +620,18 @@ export function WizardPage() {
   ) {
     const remaining = MAX_IMAGES - pinned.length
     if (remaining <= 0) {
-      setImages([])
+      imagesList.setItems([])
       return
     }
     setImagesError(null)
     setImagesLoading(true)
     try {
-      const { images: candidates } = await api.wizard.images(forPhrase, remaining, mode)
-      setImages(candidates)
+      const { images: candidates } = await api.wizard.images({
+        phrase: forPhrase,
+        count: remaining,
+        backgroundMode: mode,
+      })
+      imagesList.setItems(candidates)
     } catch (err) {
       setImagesError(err instanceof Error ? err.message : 'Erro ao buscar imagens.')
     } finally {
@@ -601,7 +643,7 @@ export function WizardPage() {
     if (!selected) return
     setPhrase(selected)
     setSelectedImage(null)
-    setPinnedImages([])
+    imagesList.reset()
     setBackgroundMode('photo')
     setStep(2)
     fetchImages(selected, [], 'photo')
@@ -611,20 +653,8 @@ export function WizardPage() {
     if (mode === backgroundMode) return
     setBackgroundMode(mode)
     setSelectedImage(null)
-    setPinnedImages([])
+    imagesList.reset()
     fetchImages(phrase, [], mode)
-  }
-
-  function handleTogglePin(image: ImageCandidate) {
-    const isPinned = pinnedImages.some(p => p.id === image.id)
-    if (isPinned) {
-      setPinnedImages(prev => prev.filter(p => p.id !== image.id))
-      // "images" may have been fully replaced by a regenerate cycle since this was
-      // pinned — add it back so unpinning doesn't make it vanish from the grid.
-      setImages(prev => (prev.some(p => p.id === image.id) ? prev : [...prev, image]))
-    } else if (pinnedImages.length < MAX_IMAGES) {
-      setPinnedImages(prev => [...prev, image])
-    }
   }
 
   function handleSelectImage(image: ImageCandidate) {
@@ -640,7 +670,7 @@ export function WizardPage() {
     if (!selectedImage) return
     const remaining = MAX_IMAGES - pinned.length
     if (remaining <= 0) {
-      setPreviews([])
+      previewsList.setItems([])
       return
     }
     setPreviewsError(null)
@@ -655,7 +685,7 @@ export function WizardPage() {
         exclude_labels: pinned.map(p => p.label),
       })
       setBatchId(batch_id)
-      setPreviews(rendered)
+      previewsList.setItems(rendered)
     } catch (err) {
       setPreviewsError(err instanceof Error ? err.message : 'Erro ao montar as prévias.')
     } finally {
@@ -665,29 +695,23 @@ export function WizardPage() {
 
   function handleSelectFont(key: string) {
     if (!selectedImage) return
+    if (key === font) {
+      // nothing actually changed — just go back to where the previews already were
+      // instead of wastefully re-hitting the AI and discarding pinned previews.
+      setStep(4)
+      return
+    }
     setFont(key)
     setStep(4)
     setSelectedPreview(null)
-    setPinnedPreviews([])
+    previewsList.reset()
     setBatchId(null)
     loadPreviews(key, [], null)
   }
 
   function handleRegeneratePreviews() {
     if (!font) return
-    loadPreviews(font, pinnedPreviews, batchId)
-  }
-
-  function handleTogglePinPreview(preview: StylePreview) {
-    const isPinned = pinnedPreviews.some(p => p.token === preview.token)
-    if (isPinned) {
-      setPinnedPreviews(prev => prev.filter(p => p.token !== preview.token))
-      // "previews" may have been fully replaced by a regenerate cycle since this was
-      // pinned — add it back so unpinning doesn't make it vanish from the grid.
-      setPreviews(prev => (prev.some(p => p.token === preview.token) ? prev : [...prev, preview]))
-    } else if (pinnedPreviews.length < MAX_IMAGES) {
-      setPinnedPreviews(prev => [...prev, preview])
-    }
+    loadPreviews(font, previewsList.pinned, batchId)
   }
 
   function handleSelectStyle(preview: StylePreview) {
@@ -744,6 +768,7 @@ export function WizardPage() {
         style: selectedPreview.key,
         batch_id: batchId,
         token: currentToken,
+        overrides,
       })
       setResult(post)
     } catch (err) {
@@ -757,14 +782,15 @@ export function WizardPage() {
     setStep(1)
     setTopic('')
     setPhrases([])
+    setPhrasesError(null)
     setPhrase('')
-    setImages([])
+    imagesList.reset()
+    setImagesError(null)
     setSelectedImage(null)
-    setPinnedImages([])
     setBackgroundMode('photo')
     setFont(null)
-    setPreviews([])
-    setPinnedPreviews([])
+    previewsList.reset()
+    setPreviewsError(null)
     setBatchId(null)
     setSelectedPreview(null)
     setCurrentToken(null)
@@ -795,40 +821,65 @@ export function WizardPage() {
 
       {step === 2 && (
         <ImageStep
-          images={images}
-          pinnedImages={pinnedImages}
+          displayed={imagesList.displayed}
+          pinnedKeys={imagesList.pinnedKeys}
+          allPinned={imagesList.allPinned}
           loading={imagesLoading}
           error={imagesError}
           selectedId={selectedImage?.id ?? null}
           backgroundMode={backgroundMode}
           onSelect={handleSelectImage}
-          onRegenerate={() => fetchImages(phrase, pinnedImages, backgroundMode)}
-          onTogglePin={handleTogglePin}
+          onRegenerate={() => fetchImages(phrase, imagesList.pinned, backgroundMode)}
+          onTogglePin={imagesList.togglePin}
           onModeChange={handleChangeBackgroundMode}
         />
       )}
 
-      {step === 3 && options && (
-        <FontStyleStep
-          step={3}
-          title="Escolha a fonte"
-          options={options.fonts}
-          selectedKey={font}
-          onSelect={handleSelectFont}
-          previewFont
-        />
+      {step === 3 && (
+        <>
+          {optionsLoading && (
+            <div className="text-center py-12 text-gray-400">
+              <div className="text-4xl mb-3 animate-pulse">🔤</div>
+              <p>Carregando fontes...</p>
+            </div>
+          )}
+          {!optionsLoading && optionsError && (
+            <div>
+              <div className="mb-6 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
+                {optionsError}
+              </div>
+              <button
+                onClick={loadOptions}
+                className="bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+              >
+                Tentar novamente
+              </button>
+            </div>
+          )}
+          {!optionsLoading && !optionsError && options && (
+            <FontStyleStep
+              step={3}
+              title="Escolha a fonte"
+              options={options.fonts}
+              selectedKey={font}
+              onSelect={handleSelectFont}
+              previewFont
+            />
+          )}
+        </>
       )}
 
       {step === 4 && (
         <StylePreviewStep
-          previews={previews}
-          pinnedPreviews={pinnedPreviews}
+          displayed={previewsList.displayed}
+          pinnedKeys={previewsList.pinnedKeys}
+          allPinned={previewsList.allPinned}
           loading={previewsLoading}
           error={previewsError}
           selectedToken={selectedPreview?.token ?? null}
           onSelect={handleSelectStyle}
           onRegenerate={handleRegeneratePreviews}
-          onTogglePin={handleTogglePinPreview}
+          onTogglePin={previewsList.togglePin}
         />
       )}
 

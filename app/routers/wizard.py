@@ -1,5 +1,7 @@
+import json
 import logging
 import random
+import re
 import uuid
 from typing import Any, cast
 
@@ -72,6 +74,26 @@ def _check_style(v: str) -> str:
     return v
 
 
+# batch_id/token are always server-generated uuid4().hex (optionally with a short hex
+# suffix) and get interpolated straight into media/ filenames and glob patterns — unlike
+# every other field here, they weren't validated, which would let a crafted value escape
+# the media/ directory (path traversal) or glob-delete an unrelated batch's files.
+_HEX_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+_TOKEN_RE = re.compile(r"^preview_[0-9a-f]{32}_[0-9a-f]{8}$")
+
+
+def _check_batch_id(v: str) -> str:
+    if not _HEX_ID_RE.match(v):
+        raise ValueError("batch_id inválido.")
+    return v
+
+
+def _check_token(v: str) -> str:
+    if not _TOKEN_RE.match(v):
+        raise ValueError("token inválido.")
+    return v
+
+
 def _preview_filename(batch_id: str, style_key: str) -> str:
     return f"preview_{batch_id}_{style_key}"
 
@@ -116,14 +138,8 @@ class FontOption(BaseModel):
     label: str
 
 
-class StyleOption(BaseModel):
-    key: str
-    label: str
-
-
 class OptionsResponse(BaseModel):
     fonts: list[FontOption]
-    styles: list[StyleOption]
 
 
 class PreviewsRequest(BaseModel):
@@ -143,6 +159,11 @@ class PreviewsRequest(BaseModel):
     @classmethod
     def validate_font(cls, v: str) -> str:
         return _check_font(v)
+
+    @field_validator("batch_id")
+    @classmethod
+    def validate_batch_id(cls, v: str | None) -> str | None:
+        return _check_batch_id(v) if v is not None else v
 
 
 class StylePreview(BaseModel):
@@ -194,6 +215,16 @@ class AdjustRequest(BaseModel):
             )
         return v
 
+    @field_validator("batch_id")
+    @classmethod
+    def validate_batch_id(cls, v: str) -> str:
+        return _check_batch_id(v)
+
+    @field_validator("token")
+    @classmethod
+    def validate_token(cls, v: str) -> str:
+        return _check_token(v)
+
 
 class AdjustResponse(BaseModel):
     token: str
@@ -208,6 +239,7 @@ class FinalizeRequest(BaseModel):
     style: str
     batch_id: str
     token: str
+    overrides: dict[str, Any] = {}
 
     @field_validator("phrase")
     @classmethod
@@ -223,6 +255,16 @@ class FinalizeRequest(BaseModel):
     @classmethod
     def validate_style(cls, v: str) -> str:
         return _check_style(v)
+
+    @field_validator("batch_id")
+    @classmethod
+    def validate_batch_id(cls, v: str) -> str:
+        return _check_batch_id(v)
+
+    @field_validator("token")
+    @classmethod
+    def validate_token(cls, v: str) -> str:
+        return _check_token(v)
 
 
 @router.post("/phrases", response_model=PhrasesResponse)
@@ -265,7 +307,6 @@ def suggest_wizard_images(
 def wizard_options() -> OptionsResponse:
     return OptionsResponse(
         fonts=[FontOption(key=key, label=data["label"]) for key, data in FONTS.items()],
-        styles=[StyleOption(key=key, label=label) for key, label in STYLE_LABELS.items()],
     )
 
 
@@ -348,11 +389,18 @@ def adjust_preview(
 
     effective_current = resolve_overrides(body.style, body.overrides)
     try:
-        overrides = get_ai_service().suggest_style_adjustment(body.instruction, effective_current)
+        ai_overrides = get_ai_service().suggest_style_adjustment(
+            body.instruction, effective_current
+        )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Erro ao interpretar o ajuste: {e}") from e
+    # Merge onto the current state rather than trusting the AI's response as the full,
+    # authoritative set — if it ever drops a key, that value should stay what it was,
+    # not silently snap back to the hardcoded default (and since this response becomes
+    # next round's body.overrides, a dropped key would otherwise be lost permanently).
+    overrides = {**effective_current, **ai_overrides}
 
-    new_token = f"preview_{body.batch_id}_{body.style}_{uuid.uuid4().hex[:8]}"
+    new_token = _preview_filename(body.batch_id, uuid.uuid4().hex[:8])
     try:
         image_path = compose_wizard_image(
             new_token,
@@ -401,6 +449,7 @@ def finalize_post(
         phrase=body.phrase,
         font=body.font,
         overlay_style=body.style,
+        overrides_json=json.dumps(body.overrides) if body.overrides else None,
         image_path=str(final_path),
     )
     return PostRepository(session).create(post)

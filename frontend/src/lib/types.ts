@@ -21,6 +21,7 @@ export interface Post {
   phrase: string | null
   font: string | null
   overlay_style: string | null
+  overrides_json: string | null
   created_at: string
 }
 
@@ -31,7 +32,6 @@ export interface WizardOption {
 
 export interface WizardOptions {
   fonts: WizardOption[]
-  styles: WizardOption[]
 }
 
 export interface ImageCandidate {

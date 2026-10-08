@@ -27,6 +27,9 @@ def _migrate() -> None:
         if "overlay_style" not in existing:
             conn.execute(text("ALTER TABLE post ADD COLUMN overlay_style TEXT"))
             conn.commit()
+        if "overrides_json" not in existing:
+            conn.execute(text("ALTER TABLE post ADD COLUMN overrides_json TEXT"))
+            conn.commit()
 
 
 def get_session() -> Generator[Session]:
