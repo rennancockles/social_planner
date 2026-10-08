@@ -3,9 +3,11 @@ import logging
 import random
 import re
 import uuid
+from io import BytesIO
 from typing import Any, cast
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from PIL import Image
 from pydantic import BaseModel, field_validator
 from sqlmodel import Session
 
@@ -100,6 +102,36 @@ def _preview_filename(batch_id: str, style_key: str) -> str:
 
 def _bg_filename(batch_id: str) -> str:
     return f"preview_{batch_id}_bg"
+
+
+# User-uploaded backgrounds (as an alternative to Unsplash search/paper-texture): saved
+# to media/upload_{hex}.png and referenced by an "upload:{hex}" image_id, so they slot
+# into the exact same selection flow as any other ImageCandidate.
+_UPLOAD_PREFIX = "upload:"
+_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+_ALLOWED_UPLOAD_TYPES = {"image/jpeg", "image/png", "image/webp"}
+
+
+def _upload_filename(upload_id: str) -> str:
+    return f"upload_{upload_id}"
+
+
+def _resolve_background_bytes(image_id: str) -> bytes:
+    if image_id.startswith(_UPLOAD_PREFIX):
+        upload_id = image_id.removeprefix(_UPLOAD_PREFIX)
+        if not _HEX_ID_RE.match(upload_id):
+            raise HTTPException(status_code=400, detail="ID de upload inválido.")
+        upload_path = MEDIA_DIR / f"{_upload_filename(upload_id)}.png"
+        if not upload_path.exists():
+            raise HTTPException(
+                status_code=400,
+                detail="Imagem enviada não encontrada ou expirada. Envie novamente.",
+            )
+        return upload_path.read_bytes()
+    try:
+        return fetch_image_bytes_by_id(image_id)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Erro ao buscar imagem: {e}") from e
 
 
 class PhrasesRequest(BaseModel):
@@ -303,6 +335,41 @@ def suggest_wizard_images(
     return ImagesResponse(images=[ImageCandidate(**c) for c in candidates])
 
 
+@router.post("/upload-image", response_model=ImageCandidate)
+async def upload_image(
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+) -> ImageCandidate:
+    """Lets the user supply their own background instead of an Unsplash candidate — the
+    result slots into the wizard exactly like any other ImageCandidate (same selection,
+    pinning, and /previews flow), just referenced by an "upload:" id instead of a real
+    Unsplash photo id."""
+    _require_profile(session)
+
+    if file.content_type not in _ALLOWED_UPLOAD_TYPES:
+        raise HTTPException(
+            status_code=400, detail=f"Tipo de arquivo não suportado: {file.content_type!r}"
+        )
+
+    content = await file.read()
+    if len(content) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=400, detail="Arquivo muito grande (máximo 10MB).")
+
+    try:
+        # Decode-then-reencode (not just copy the raw bytes) both confirms the content is
+        # a genuinely valid image regardless of what the content-type header claimed, and
+        # normalizes it to a known-good PNG before it ever reaches the render pipeline.
+        Image.open(BytesIO(content)).verify()
+        rgb_image = Image.open(BytesIO(content)).convert("RGB")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Arquivo não é uma imagem válida.") from e
+
+    upload_id = uuid.uuid4().hex
+    out_path = MEDIA_DIR / f"{_upload_filename(upload_id)}.png"
+    rgb_image.save(out_path, "PNG")
+    return ImageCandidate(id=f"{_UPLOAD_PREFIX}{upload_id}", thumb_url=str(out_path))
+
+
 @router.get("/options", response_model=OptionsResponse)
 def wizard_options() -> OptionsResponse:
     return OptionsResponse(
@@ -334,10 +401,7 @@ def generate_previews(
         batch_id = body.batch_id
         image_bytes = bg_path.read_bytes()
     else:
-        try:
-            image_bytes = fetch_image_bytes_by_id(body.image_id)
-        except Exception as e:
-            raise HTTPException(status_code=502, detail=f"Erro ao buscar imagem: {e}") from e
+        image_bytes = _resolve_background_bytes(body.image_id)
         batch_id = uuid.uuid4().hex
         # Cache the raw background so later /adjust and /previews rounds re-render
         # without hitting Unsplash again.

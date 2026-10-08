@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, API_URL } from '../lib/api'
+import { api, API_URL, resolveMediaUrl } from '../lib/api'
 import type {
   AdjustResult,
   ImageCandidate,
@@ -153,10 +153,13 @@ function ImageStep({
   error,
   selectedId,
   backgroundMode,
+  uploadLoading,
+  uploadError,
   onSelect,
   onRegenerate,
   onTogglePin,
   onModeChange,
+  onUpload,
 }: {
   displayed: ImageCandidate[]
   pinnedKeys: Set<string>
@@ -164,24 +167,31 @@ function ImageStep({
   loading: boolean
   error: string | null
   selectedId: string | null
-  backgroundMode: 'photo' | 'paper'
+  backgroundMode: 'photo' | 'paper' | 'upload'
+  uploadLoading: boolean
+  uploadError: string | null
   onSelect: (image: ImageCandidate) => void
   onRegenerate: () => void
   onTogglePin: (image: ImageCandidate) => void
-  onModeChange: (mode: 'photo' | 'paper') => void
+  onModeChange: (mode: 'photo' | 'paper' | 'upload') => void
+  onUpload: (file: File) => void
 }) {
+  const isUploadMode = backgroundMode === 'upload'
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <StepHeader step={2} title="Escolha a imagem de fundo" />
-        <button
-          onClick={onRegenerate}
-          disabled={loading || allPinned}
-          title={allPinned ? 'Todas as imagens já estão fixadas' : undefined}
-          className="bg-gray-100 hover:bg-gray-200 disabled:opacity-50 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap"
-        >
-          🔄 Gerar novas opções
-        </button>
+        {!isUploadMode && (
+          <button
+            onClick={onRegenerate}
+            disabled={loading || allPinned}
+            title={allPinned ? 'Todas as imagens já estão fixadas' : undefined}
+            className="bg-gray-100 hover:bg-gray-200 disabled:opacity-50 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap"
+          >
+            🔄 Gerar novas opções
+          </button>
+        )}
       </div>
 
       <div className="flex gap-2 mb-6">
@@ -207,64 +217,106 @@ function ImageStep({
         >
           📄 Papel/Textura
         </button>
+        <button
+          onClick={() => onModeChange('upload')}
+          disabled={loading}
+          className={`flex-1 rounded-lg py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
+            backgroundMode === 'upload'
+              ? 'bg-violet-600 text-white'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+          }`}
+        >
+          📤 Minha imagem
+        </button>
       </div>
 
-      {error && (
-        <div className="mb-6 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
-          {error}
+      {isUploadMode ? (
+        <div>
+          {uploadError && (
+            <div className="mb-4 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
+              {uploadError}
+            </div>
+          )}
+          <label className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-gray-300 hover:border-violet-400 rounded-lg py-12 cursor-pointer transition-colors">
+            <span className="text-4xl">{uploadLoading ? '⏳' : '📤'}</span>
+            <span className="text-sm text-gray-600">
+              {uploadLoading ? 'Enviando...' : 'Clique para escolher uma imagem do dispositivo'}
+            </span>
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              disabled={uploadLoading}
+              onChange={e => {
+                const file = e.target.files?.[0]
+                if (file) onUpload(file)
+                e.target.value = ''
+              }}
+              className="hidden"
+            />
+          </label>
         </div>
-      )}
+      ) : (
+        <>
+          {error && (
+            <div className="mb-6 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
+              {error}
+            </div>
+          )}
 
-      {loading && (
-        <div className="text-center py-12 text-gray-400">
-          <div className="text-4xl mb-3 animate-pulse">🖼️</div>
-          <p>Buscando imagens...</p>
-        </div>
-      )}
+          {loading && (
+            <div className="text-center py-12 text-gray-400">
+              <div className="text-4xl mb-3 animate-pulse">🖼️</div>
+              <p>Buscando imagens...</p>
+            </div>
+          )}
 
-      {!loading && (
-        <div className="grid grid-cols-2 gap-4">
-          {displayed.map(image => {
-            const isPinned = pinnedKeys.has(image.id)
-            return (
-              <div key={image.id} className="relative">
-                <button
-                  onClick={() => onSelect(image)}
-                  className={`w-full aspect-square rounded-lg overflow-hidden border-4 transition-colors ${
-                    selectedId === image.id
-                      ? 'border-violet-600'
-                      : isPinned
-                        ? 'border-amber-400'
-                        : 'border-transparent hover:border-violet-200'
-                  }`}
-                >
-                  <img
-                    src={image.thumb_url}
-                    alt="Opção de imagem de fundo"
-                    className="w-full h-full object-cover"
-                  />
-                </button>
-                <button
-                  onClick={e => {
-                    e.stopPropagation()
-                    onTogglePin(image)
-                  }}
-                  title={isPinned ? 'Remover fixação' : 'Fixar esta imagem'}
-                  className={`absolute top-2 right-2 w-8 h-8 rounded-full flex items-center justify-center text-sm transition-colors ${
-                    isPinned ? 'bg-amber-400 text-white' : 'bg-white/80 text-gray-600 hover:bg-white'
-                  }`}
-                >
-                  📌
-                </button>
-                {isPinned && (
-                  <span className="absolute bottom-2 left-2 bg-amber-400 text-white text-xs px-2 py-0.5 rounded-full">
-                    Fixada
-                  </span>
-                )}
-              </div>
-            )
-          })}
-        </div>
+          {!loading && (
+            <div className="grid grid-cols-2 gap-4">
+              {displayed.map(image => {
+                const isPinned = pinnedKeys.has(image.id)
+                return (
+                  <div key={image.id} className="relative">
+                    <button
+                      onClick={() => onSelect(image)}
+                      className={`w-full aspect-square rounded-lg overflow-hidden border-4 transition-colors ${
+                        selectedId === image.id
+                          ? 'border-violet-600'
+                          : isPinned
+                            ? 'border-amber-400'
+                            : 'border-transparent hover:border-violet-200'
+                      }`}
+                    >
+                      <img
+                        src={resolveMediaUrl(image.thumb_url)}
+                        alt="Opção de imagem de fundo"
+                        className="w-full h-full object-cover"
+                      />
+                    </button>
+                    <button
+                      onClick={e => {
+                        e.stopPropagation()
+                        onTogglePin(image)
+                      }}
+                      title={isPinned ? 'Remover fixação' : 'Fixar esta imagem'}
+                      className={`absolute top-2 right-2 w-8 h-8 rounded-full flex items-center justify-center text-sm transition-colors ${
+                        isPinned
+                          ? 'bg-amber-400 text-white'
+                          : 'bg-white/80 text-gray-600 hover:bg-white'
+                      }`}
+                    >
+                      📌
+                    </button>
+                    {isPinned && (
+                      <span className="absolute bottom-2 left-2 bg-amber-400 text-white text-xs px-2 py-0.5 rounded-full">
+                        Fixada
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </>
       )}
     </div>
   )
@@ -559,7 +611,9 @@ export function WizardPage() {
   const [imagesLoading, setImagesLoading] = useState(false)
   const [imagesError, setImagesError] = useState<string | null>(null)
   const [selectedImage, setSelectedImage] = useState<ImageCandidate | null>(null)
-  const [backgroundMode, setBackgroundMode] = useState<'photo' | 'paper'>('photo')
+  const [backgroundMode, setBackgroundMode] = useState<'photo' | 'paper' | 'upload'>('photo')
+  const [uploadLoading, setUploadLoading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
 
   const [options, setOptions] = useState<WizardOptions | null>(null)
   const [optionsLoading, setOptionsLoading] = useState(false)
@@ -649,12 +703,28 @@ export function WizardPage() {
     fetchImages(selected, [], 'photo')
   }
 
-  function handleChangeBackgroundMode(mode: 'photo' | 'paper') {
+  function handleChangeBackgroundMode(mode: 'photo' | 'paper' | 'upload') {
     if (mode === backgroundMode) return
     setBackgroundMode(mode)
     setSelectedImage(null)
+    setUploadError(null)
     imagesList.reset()
-    fetchImages(phrase, [], mode)
+    if (mode !== 'upload') {
+      fetchImages(phrase, [], mode)
+    }
+  }
+
+  async function handleUploadImage(file: File) {
+    setUploadError(null)
+    setUploadLoading(true)
+    try {
+      const candidate = await api.wizard.uploadImage(file)
+      handleSelectImage(candidate)
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Erro ao enviar imagem.')
+    } finally {
+      setUploadLoading(false)
+    }
   }
 
   function handleSelectImage(image: ImageCandidate) {
@@ -788,6 +858,7 @@ export function WizardPage() {
     setImagesError(null)
     setSelectedImage(null)
     setBackgroundMode('photo')
+    setUploadError(null)
     setFont(null)
     previewsList.reset()
     setPreviewsError(null)
@@ -828,10 +899,15 @@ export function WizardPage() {
           error={imagesError}
           selectedId={selectedImage?.id ?? null}
           backgroundMode={backgroundMode}
+          uploadLoading={uploadLoading}
+          uploadError={uploadError}
           onSelect={handleSelectImage}
-          onRegenerate={() => fetchImages(phrase, imagesList.pinned, backgroundMode)}
+          onRegenerate={() => {
+            if (backgroundMode !== 'upload') fetchImages(phrase, imagesList.pinned, backgroundMode)
+          }}
           onTogglePin={imagesList.togglePin}
           onModeChange={handleChangeBackgroundMode}
+          onUpload={handleUploadImage}
         />
       )}
 
