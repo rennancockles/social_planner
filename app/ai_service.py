@@ -122,6 +122,9 @@ atrás do texto, de 0 a 255 (quanto maior, mais opaco)
 - text_size: tamanho da fonte do texto principal (a frase) em pixels (entre 24 e 90)
 - text_align: alinhamento do texto, "center" ou "left"
 - text_uppercase: true/false — deixa o texto principal em caixa alta
+- text_weight: peso da fonte do texto principal — "regular", "medium", \
+"semibold", "bold" ou "black" (pode não ter efeito em fontes manuscritas, \
+que normalmente têm só um peso)
 - text_line_spacing: espaço entre as linhas do texto em pixels (entre 4 e 50)
 - text_vertical_offset: desloca o texto/caixa verticalmente em pixels, de -200 \
 (mais para cima) a 200 (mais para baixo); 0 é centralizado

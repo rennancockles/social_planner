@@ -1,3 +1,4 @@
+import contextlib
 import math
 import random
 import re
@@ -38,6 +39,11 @@ FONTS = {
         "italic": ASSETS_DIR / "fonts" / "AlexBrush.ttf",
         "label": "Alex Brush (caligrafia elegante)",
     },
+    "fredoka": {
+        "regular": ASSETS_DIR / "fonts" / "Fredoka.ttf",
+        "italic": ASSETS_DIR / "fonts" / "Fredoka.ttf",
+        "label": "Fredoka (arredondada bold)",
+    },
 }
 DEFAULT_FONT_KEY = "playfair"
 
@@ -55,12 +61,32 @@ def _clean_overlay_text(text: str) -> str:
     return re.sub(r"\s+", " ", allowed).strip()
 
 
+_FONT_WEIGHT_NAMES = {
+    "regular": b"Regular",
+    "medium": b"Medium",
+    "semibold": b"SemiBold",
+    "bold": b"Bold",
+    "black": b"Black",
+}
+
+
 def _font(
-    size: int, italic: bool = False, font_key: str = DEFAULT_FONT_KEY
+    size: int,
+    italic: bool = False,
+    font_key: str = DEFAULT_FONT_KEY,
+    weight: str = "regular",
 ) -> ImageFont.FreeTypeFont:
     variant = "italic" if italic else "regular"
     path = FONTS[font_key][variant]
-    return ImageFont.truetype(str(path), size)
+    font = ImageFont.truetype(str(path), size)
+    instance = _FONT_WEIGHT_NAMES.get(weight)
+    if instance and instance != b"Regular":
+        # Not every font is variable, and not every variable font has this exact named
+        # instance (e.g. Caveat only has Regular/Bold) — silently keep the font's default
+        # weight rather than erroring when the requested one isn't available.
+        with contextlib.suppress(Exception):
+            font.set_variation_by_name(instance)
+    return font
 
 
 def _wrap(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
@@ -138,6 +164,11 @@ def _ov_bool(overrides: dict[str, object], key: str, default: bool) -> bool:
 
 def _resolve_align(overrides: dict[str, object]) -> str:
     return "left" if overrides.get("text_align") == "left" else "center"
+
+
+def _resolve_weight(overrides: dict[str, object]) -> str:
+    value = overrides.get("text_weight")
+    return value if isinstance(value, str) and value in _FONT_WEIGHT_NAMES else "regular"
 
 
 def _line_x(align: str, line_w: int, left: int, center: int) -> int:
@@ -265,6 +296,7 @@ STYLE_DEFAULTS: dict[str, dict[str, object]] = {
         "watermark_size": 28,
         "text_align": "center",
         "text_uppercase": False,
+        "text_weight": "regular",
         "accent_decoration": "none",
     },
     "bottom_dark": {
@@ -279,6 +311,7 @@ STYLE_DEFAULTS: dict[str, dict[str, object]] = {
         "watermark_size": 30,
         "text_align": "center",
         "text_uppercase": False,
+        "text_weight": "regular",
         "accent_decoration": "none",
     },
     "light_border": {
@@ -296,6 +329,7 @@ STYLE_DEFAULTS: dict[str, dict[str, object]] = {
         "watermark_size": 26,
         "text_align": "center",
         "text_uppercase": False,
+        "text_weight": "regular",
         "accent_decoration": "none",
     },
     "minimal": {
@@ -309,6 +343,7 @@ STYLE_DEFAULTS: dict[str, dict[str, object]] = {
         "watermark_size": 30,
         "text_align": "center",
         "text_uppercase": False,
+        "text_weight": "regular",
         "accent_decoration": "none",
     },
 }
@@ -354,13 +389,14 @@ def _style_box(
     accent_rgb = _ov_color(ov, "accent_color", cast(str, d["accent_color"]))
     text_rgb = _ov_color(ov, "text_color", cast(str, d["text_color"]))
     align = _resolve_align(ov)
+    weight = _resolve_weight(ov)
     if _ov_bool(ov, "text_uppercase", cast(bool, d["text_uppercase"])):
         text = text.upper()
 
     pad = 60
     box_w = int(IMAGE_SIZE * box_width_pct)
     text_size = _ov_int(ov, "text_size", cast(int, d["text_size"]), 24, 90)
-    font = _font(text_size, font_key=font_key)
+    font = _font(text_size, font_key=font_key, weight=weight)
     spacing = _ov_int(ov, "text_line_spacing", cast(int, d["text_line_spacing"]), 4, 50)
     lines = _wrap(text, font, box_w - pad * 2)
     text_h = _text_block_height(lines, font, spacing)
@@ -427,6 +463,7 @@ def _style_bottom_dark(
     peak_alpha = _ov_int(ov, "box_opacity", cast(int, d["box_opacity"]), 0, 255)
     text_rgb = _ov_color(ov, "text_color", cast(str, d["text_color"]))
     align = _resolve_align(ov)
+    weight = _resolve_weight(ov)
     if _ov_bool(ov, "text_uppercase", cast(bool, d["text_uppercase"])):
         text = text.upper()
 
@@ -439,7 +476,7 @@ def _style_bottom_dark(
         )
 
     text_size = _ov_int(ov, "text_size", cast(int, d["text_size"]), 24, 90)
-    font = _font(text_size, font_key=font_key)
+    font = _font(text_size, font_key=font_key, weight=weight)
     spacing = _ov_int(ov, "text_line_spacing", cast(int, d["text_line_spacing"]), 4, 50)
     shadow_alpha = _ov_int(ov, "text_shadow_opacity", cast(int, d["text_shadow_opacity"]), 0, 255)
     pad = 70
@@ -477,14 +514,18 @@ def _style_bottom_dark(
     return Image.alpha_composite(out, overlay).convert("RGB")
 
 
-def _style_light_border(
+def _style_light_border(  # noqa: PLR0915
     img: Image.Image,
     text: str,
     watermark: bool,
     font_key: str = DEFAULT_FONT_KEY,
     overrides: dict[str, object] | None = None,
 ) -> Image.Image:
-    """Light frosted overlay centered, dark text, thin border frame."""
+    """Light frosted overlay centered, dark text, thin border frame.
+
+    One cohesive render pass — splitting it would just shuffle statements into a
+    sibling function sharing most of its local state (hence the PLR0915 suppression).
+    """
     ov = overrides or {}
     out = img.copy().convert("RGBA")
     blurred = out.filter(ImageFilter.GaussianBlur(12))
@@ -499,13 +540,14 @@ def _style_light_border(
     accent_rgb = _ov_color(ov, "accent_color", cast(str, d["accent_color"]))
     text_rgb = _ov_color(ov, "text_color", cast(str, d["text_color"]))
     align = _resolve_align(ov)
+    weight = _resolve_weight(ov)
     if _ov_bool(ov, "text_uppercase", cast(bool, d["text_uppercase"])):
         text = text.upper()
 
     pad = 55
     box_w = int(IMAGE_SIZE * box_width_pct)
     text_size = _ov_int(ov, "text_size", cast(int, d["text_size"]), 24, 90)
-    font = _font(text_size, italic=True, font_key=font_key)
+    font = _font(text_size, italic=True, font_key=font_key, weight=weight)
     spacing = _ov_int(ov, "text_line_spacing", cast(int, d["text_line_spacing"]), 4, 50)
     lines = _wrap(text, font, box_w - pad * 2)
     text_h = _text_block_height(lines, font, spacing)
@@ -570,11 +612,12 @@ def _style_minimal(
     d = STYLE_DEFAULTS["minimal"]
     text_rgb = _ov_color(ov, "text_color", cast(str, d["text_color"]))
     align = _resolve_align(ov)
+    weight = _resolve_weight(ov)
     if _ov_bool(ov, "text_uppercase", cast(bool, d["text_uppercase"])):
         text = text.upper()
 
     text_size = _ov_int(ov, "text_size", cast(int, d["text_size"]), 24, 90)
-    font = _font(text_size, font_key=font_key)
+    font = _font(text_size, font_key=font_key, weight=weight)
     spacing = _ov_int(ov, "text_line_spacing", cast(int, d["text_line_spacing"]), 4, 50)
     shadow_alpha = _ov_int(ov, "text_shadow_opacity", cast(int, d["text_shadow_opacity"]), 0, 255)
     pad = 80
@@ -733,6 +776,7 @@ STYLE_PRESETS: list[dict[str, object]] = [
             "text_uppercase": True,
             "text_align": "center",
             "text_size": 50,
+            "text_weight": "black",
             "text_shadow_opacity": 0,
         },
     },
@@ -743,6 +787,7 @@ STYLE_PRESETS: list[dict[str, object]] = [
             "text_color": "#ffffff",
             "text_align": "left",
             "text_size": 62,
+            "text_weight": "bold",
             "text_shadow_opacity": 210,
             "accent_decoration": "stars",
         },
