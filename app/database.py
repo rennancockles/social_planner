@@ -2,9 +2,9 @@ from collections.abc import Generator
 
 from sqlmodel import Session, SQLModel, create_engine, text
 
-DATABASE_URL = "sqlite:///./social_planner.db"
+from app.settings import settings
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+engine = create_engine(settings.database_url, connect_args={"check_same_thread": False})
 
 
 def create_db_and_tables() -> None:

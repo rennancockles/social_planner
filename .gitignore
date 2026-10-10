@@ -9,6 +9,11 @@ frontend/.env.local
 *.db
 *.sqlite3
 
+# Machine/org-specific CA bundle for Docker builds behind a TLS-inspecting proxy
+certs/*.crt
+certs/*.pem
+!certs/.gitkeep
+
 # Data types
 *.parquet
 *.docx

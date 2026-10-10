@@ -1,0 +1,14 @@
+.venv
+__pycache__
+*.pyc
+.git
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.kanbai
+.claude
+tmp
+media
+*.db
+frontend/node_modules
+frontend/dist
