@@ -396,7 +396,7 @@ def _style_box(
     watermark: bool,
     font_key: str = DEFAULT_FONT_KEY,
     overrides: dict[str, object] | None = None,
-) -> Image.Image:
+) -> tuple[Image.Image, Image.Image]:
     """White/cream semi-transparent box with decorative quotes, centered."""
     ov = overrides or {}
     out = img.copy().convert("RGBA")
@@ -465,7 +465,7 @@ def _style_box(
             overlay, draw, bx + box_w // 2, by + box_h + 16, font_key, wm_size, wm_rgb, wm_alpha
         )
 
-    return Image.alpha_composite(out, overlay).convert("RGB")
+    return Image.alpha_composite(out, overlay).convert("RGB"), overlay
 
 
 def _style_bottom_dark(
@@ -474,7 +474,7 @@ def _style_bottom_dark(
     watermark: bool,
     font_key: str = DEFAULT_FONT_KEY,
     overrides: dict[str, object] | None = None,
-) -> Image.Image:
+) -> tuple[Image.Image, Image.Image]:
     """Dark gradient overlay on lower half, white text with shadow."""
     ov = overrides or {}
     out = img.copy().convert("RGBA")
@@ -533,7 +533,7 @@ def _style_bottom_dark(
             overlay, draw, IMAGE_SIZE // 2, y + 10, font_key, wm_size, wm_rgb, wm_alpha
         )
 
-    return Image.alpha_composite(out, overlay).convert("RGB")
+    return Image.alpha_composite(out, overlay).convert("RGB"), overlay
 
 
 def _style_light_border(  # noqa: PLR0915
@@ -542,7 +542,7 @@ def _style_light_border(  # noqa: PLR0915
     watermark: bool,
     font_key: str = DEFAULT_FONT_KEY,
     overrides: dict[str, object] | None = None,
-) -> Image.Image:
+) -> tuple[Image.Image, Image.Image]:
     """Light frosted overlay centered, dark text, thin border frame.
 
     One cohesive render pass — splitting it would just shuffle statements into a
@@ -615,7 +615,12 @@ def _style_light_border(  # noqa: PLR0915
     result = Image.alpha_composite(out, Image.new("RGBA", out.size, (0, 0, 0, 0)))
     mask = overlay.split()[3]
     result.paste(merged, mask=mask)
-    return result.convert("RGB")
+    # The returned overlay is the plain box+text layer, not the frosted-glass merge above
+    # (that merge bakes in a blur of *this specific* background) — callers that need the
+    # overlay standalone (e.g. video export, which re-animates the background underneath)
+    # get a flat semi-transparent box instead of a live blur-through, a deliberate
+    # simplification since re-blurring every animated frame isn't worth the cost.
+    return result.convert("RGB"), overlay
 
 
 def _style_minimal(
@@ -624,7 +629,7 @@ def _style_minimal(
     watermark: bool,
     font_key: str = DEFAULT_FONT_KEY,
     overrides: dict[str, object] | None = None,
-) -> Image.Image:
+) -> tuple[Image.Image, Image.Image]:
     """Text centered directly over image with subtle shadow, no box."""
     ov = overrides or {}
     out = img.copy().convert("RGBA")
@@ -679,7 +684,7 @@ def _style_minimal(
             overlay, draw, IMAGE_SIZE // 2, IMAGE_SIZE - 55, font_key, wm_size, wm_rgb, wm_alpha
         )
 
-    return Image.alpha_composite(out, overlay).convert("RGB")
+    return Image.alpha_composite(out, overlay).convert("RGB"), overlay
 
 
 _STYLES = {
@@ -841,7 +846,7 @@ def generate_post_image(
     bg = _load_background(img_bytes)
 
     style_fn = random.choice(list(_STYLES.values()))
-    result = style_fn(bg, _clean_overlay_text(post_content), watermark)
+    result, _overlay = style_fn(bg, _clean_overlay_text(post_content), watermark)
 
     out_path = MEDIA_DIR / f"{post_id}.png"
     result.save(str(out_path), "PNG", optimize=True)
@@ -863,10 +868,38 @@ def compose_wizard_image(
     bg = _load_background(image_bytes)
     bg = _apply_background_adjustments(bg, overrides or {})
     style_fn = _STYLES[style_key]
-    result = style_fn(
+    result, _overlay = style_fn(
         bg, _clean_overlay_text(phrase), watermark, font_key=font_key, overrides=overrides
     )
 
     out_path = MEDIA_DIR / f"{file_stem}.png"
     result.save(str(out_path), "PNG", optimize=True)
     return out_path
+
+
+def render_wizard_layers(
+    image_bytes: bytes,
+    phrase: str,
+    font_key: str,
+    style_key: str,
+    watermark: bool = True,
+    overrides: dict[str, object] | None = None,
+) -> tuple[Image.Image, Image.Image]:
+    """Same render pipeline as compose_wizard_image, but keeps the background and the
+    text/box overlay as separate layers (background RGB, overlay RGBA) instead of
+    flattening them into one PNG — lets the video exporter animate the background while
+    the overlay stays static on top of it."""
+    bg = _load_background(image_bytes)
+    bg = _apply_background_adjustments(bg, overrides or {})
+    style_fn = _STYLES[style_key]
+    _, overlay = style_fn(
+        bg, _clean_overlay_text(phrase), watermark, font_key=font_key, overrides=overrides
+    )
+    return bg, overlay
+
+
+def wizard_background_path(image_path: str | Path) -> Path:
+    """Convention-based sibling file: finalize_post renames the batch's cached raw
+    background here instead of deleting it, so a video can later be rendered from the
+    same unflattened background + overlay layers as the static post image."""
+    return MEDIA_DIR / f"{Path(image_path).stem}_bg.png"

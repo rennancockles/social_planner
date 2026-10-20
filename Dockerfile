@@ -19,6 +19,11 @@ ENV UV_COMPILE_BYTECODE=1 \
 COPY certs/ /usr/local/share/ca-certificates/
 RUN update-ca-certificates
 
+# ffmpeg renders the wizard's video export (animated background + static text overlay,
+# mixed with an optional user-supplied music track).
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install deps first (separate layer from app code) so code-only changes don't
 # invalidate the dependency-install cache.
 COPY pyproject.toml uv.lock ./

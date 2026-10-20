@@ -57,6 +57,8 @@ export const api = {
       }),
     approve: (id: number) => request<Post>(`/api/posts/${id}/approve`, { method: 'PATCH' }),
     delete: (id: number) => request<void>(`/api/posts/${id}`, { method: 'DELETE' }),
+    generateVideo: (id: number, body: { audio_id?: string | null; duration?: number }) =>
+      request<Post>(`/api/posts/${id}/video`, { method: 'POST', body: JSON.stringify(body) }),
   },
   wizard: {
     phrases: (body: { topic?: string; count?: number }) =>
@@ -78,6 +80,11 @@ export const api = {
       const formData = new FormData()
       formData.append('file', file)
       return requestUpload<ImageCandidate>('/api/wizard/upload-image', formData)
+    },
+    uploadAudio: (file: File) => {
+      const formData = new FormData()
+      formData.append('file', file)
+      return requestUpload<{ audio_id: string }>('/api/wizard/upload-audio', formData)
     },
     previews: (body: {
       phrase: string

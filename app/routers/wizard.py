@@ -21,9 +21,11 @@ from app.image_service import (
     STYLE_PRESETS,
     compose_wizard_image,
     resolve_overrides,
+    wizard_background_path,
 )
 from app.models import Post, Profile
 from app.repositories import PostRepository, ProfileRepository
+from app.video_service import validate_audio_bytes
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/wizard", tags=["wizard"])
@@ -370,6 +372,51 @@ async def upload_image(
     return ImageCandidate(id=f"{_UPLOAD_PREFIX}{upload_id}", thumb_url=str(out_path))
 
 
+# Background music for the video export: always supplied by the user, never pulled from
+# a reference video — saved under its original container (mp3/wav/m4a) since re-encoding
+# isn't needed until the ffmpeg render step itself.
+_MAX_AUDIO_BYTES = 15 * 1024 * 1024
+_AUDIO_EXT_BY_TYPE = {
+    "audio/mpeg": "mp3",
+    "audio/mp3": "mp3",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+    "audio/mp4": "m4a",
+    "audio/x-m4a": "m4a",
+    "audio/m4a": "m4a",
+}
+
+
+class AudioUploadResponse(BaseModel):
+    audio_id: str
+
+
+@router.post("/upload-audio", response_model=AudioUploadResponse)
+async def upload_audio(
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+) -> AudioUploadResponse:
+    """Lets the user supply their own background music for a post's video export."""
+    _require_profile(session)
+
+    ext = _AUDIO_EXT_BY_TYPE.get(file.content_type or "")
+    if not ext:
+        raise HTTPException(
+            status_code=400, detail=f"Tipo de áudio não suportado: {file.content_type!r}"
+        )
+
+    content = await file.read()
+    if len(content) > _MAX_AUDIO_BYTES:
+        raise HTTPException(status_code=400, detail="Arquivo de áudio muito grande (máximo 15MB).")
+
+    if not validate_audio_bytes(content):
+        raise HTTPException(status_code=400, detail="Arquivo não é um áudio válido.")
+
+    audio_id = uuid.uuid4().hex
+    (MEDIA_DIR / f"audio_{audio_id}.{ext}").write_bytes(content)
+    return AudioUploadResponse(audio_id=audio_id)
+
+
 @router.get("/options", response_model=OptionsResponse)
 def wizard_options() -> OptionsResponse:
     return OptionsResponse(
@@ -503,6 +550,14 @@ def finalize_post(
 
     final_path = MEDIA_DIR / f"{uuid.uuid4().hex}.png"
     chosen_path.rename(final_path)
+
+    # Preserve the batch's raw (pre-overlay) background instead of letting the cleanup
+    # below delete it — a later video export needs it to animate the background layer
+    # separately from the static text/box overlay.
+    cached_bg_path = MEDIA_DIR / f"{_bg_filename(body.batch_id)}.png"
+    if cached_bg_path.exists():
+        cached_bg_path.rename(wizard_background_path(final_path))
+
     for sibling in MEDIA_DIR.glob(f"preview_{body.batch_id}_*"):
         sibling.unlink(missing_ok=True)
 

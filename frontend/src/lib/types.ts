@@ -18,6 +18,7 @@ export interface Post {
   topic: string | null
   status: PostStatus
   image_path: string | null
+  video_path: string | null
   phrase: string | null
   font: string | null
   overlay_style: string | null

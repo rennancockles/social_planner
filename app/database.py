@@ -30,6 +30,9 @@ def _migrate() -> None:
         if "overrides_json" not in existing:
             conn.execute(text("ALTER TABLE post ADD COLUMN overrides_json TEXT"))
             conn.commit()
+        if "video_path" not in existing:
+            conn.execute(text("ALTER TABLE post ADD COLUMN video_path TEXT"))
+            conn.commit()
 
 
 def get_session() -> Generator[Session]:

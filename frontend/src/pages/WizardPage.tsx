@@ -454,6 +454,105 @@ function StylePreviewStep({
   )
 }
 
+/** Optional post-finalize step: turn the static wizard card into a short vertical video
+ * (animated background, static text overlay, optional user-supplied music). Lives on its
+ * own state since it only makes sense once a Post already exists. */
+function VideoExport({ post }: { post: Post }) {
+  const [videoPath, setVideoPath] = useState<string | null>(post.video_path)
+  const [audioId, setAudioId] = useState<string | null>(null)
+  const [audioName, setAudioName] = useState<string | null>(null)
+  const [uploadingAudio, setUploadingAudio] = useState(false)
+  const [audioError, setAudioError] = useState<string | null>(null)
+  const [generating, setGenerating] = useState(false)
+  const [videoError, setVideoError] = useState<string | null>(null)
+
+  async function handleUploadAudio(file: File) {
+    setAudioError(null)
+    setUploadingAudio(true)
+    try {
+      const { audio_id } = await api.wizard.uploadAudio(file)
+      setAudioId(audio_id)
+      setAudioName(file.name)
+    } catch (err) {
+      setAudioError(err instanceof Error ? err.message : 'Erro ao enviar áudio.')
+    } finally {
+      setUploadingAudio(false)
+    }
+  }
+
+  async function handleGenerateVideo() {
+    setVideoError(null)
+    setGenerating(true)
+    try {
+      const updated = await api.posts.generateVideo(post.id, { audio_id: audioId })
+      setVideoPath(updated.video_path)
+    } catch (err) {
+      setVideoError(err instanceof Error ? err.message : 'Erro ao gerar vídeo.')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  if (videoPath) {
+    const videoUrl = `${API_URL}/${videoPath}`
+    return (
+      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+        <p className="text-sm text-gray-600 mb-3">Vídeo gerado:</p>
+        <video src={videoUrl} controls className="w-full max-w-xs mx-auto rounded-lg" />
+        <a
+          href={videoUrl}
+          download
+          className="mt-3 block text-center bg-gray-800 hover:bg-gray-900 text-white rounded-lg py-2 text-sm font-medium transition-colors"
+        >
+          Baixar vídeo
+        </a>
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+      <p className="text-sm text-gray-600 mb-2">
+        Transformar este post em um vídeo curto (reel), com o mesmo texto e arte, fundo animado e
+        música de fundo opcional:
+      </p>
+      <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer mb-2">
+        <span className="bg-white border border-gray-300 rounded-lg px-3 py-1.5 hover:bg-gray-100">
+          {uploadingAudio ? 'Enviando...' : '🎵 Escolher música (opcional)'}
+        </span>
+        <input
+          type="file"
+          accept="audio/*"
+          className="hidden"
+          disabled={uploadingAudio}
+          onChange={e => {
+            const file = e.target.files?.[0]
+            if (file) handleUploadAudio(file)
+          }}
+        />
+        {audioName && <span className="truncate">{audioName}</span>}
+      </label>
+      {audioError && (
+        <div className="mb-2 bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-sm">
+          {audioError}
+        </div>
+      )}
+      {videoError && (
+        <div className="mb-2 bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-sm">
+          {videoError}
+        </div>
+      )}
+      <button
+        onClick={handleGenerateVideo}
+        disabled={generating || uploadingAudio}
+        className="w-full bg-gray-800 hover:bg-gray-900 disabled:opacity-50 text-white rounded-lg py-2 text-sm font-medium transition-colors"
+      >
+        {generating ? 'Gerando vídeo...' : '🎬 Gerar vídeo'}
+      </button>
+    </div>
+  )
+}
+
 function ReviewStep({
   phrase,
   currentImagePath,
@@ -496,9 +595,10 @@ function ReviewStep({
             <p className="text-gray-800 whitespace-pre-wrap leading-relaxed">{result.content}</p>
           </div>
         </div>
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-gray-500 mb-6">
           O post já está na fila de pendentes, em "Gerar Posts", para você aprovar ou rejeitar.
         </p>
+        <VideoExport post={result} />
       </div>
     )
   }

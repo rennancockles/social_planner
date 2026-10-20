@@ -30,6 +30,7 @@ class Post(SQLModel, table=True):
     topic: str | None = None
     status: PostStatus = PostStatus.pending
     image_path: str | None = None
+    video_path: str | None = None
     phrase: str | None = None
     font: str | None = None
     overlay_style: str | None = None
