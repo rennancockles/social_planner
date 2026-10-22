@@ -9,7 +9,9 @@ import type {
   WizardOptions,
 } from './types'
 
-export const API_URL = import.meta.env.PLANNER_API_URL ?? 'http://localhost:8000'
+// Empty = same origin: nginx (prod) and the Vite dev server both proxy /api and /media to the
+// backend. Set PLANNER_API_URL only to point the browser at a backend on another origin.
+export const API_URL = import.meta.env.PLANNER_API_URL ?? ''
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
