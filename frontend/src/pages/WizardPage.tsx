@@ -180,7 +180,7 @@ function ImageStep({
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
         <StepHeader step={2} title="Escolha a imagem de fundo" />
         {!isUploadMode && (
           <button
@@ -383,7 +383,7 @@ function StylePreviewStep({
 }) {
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-6">
         <StepHeader step={4} title="Escolha o estilo da arte final" />
         <button
           onClick={onRegenerate}
@@ -516,8 +516,8 @@ function VideoExport({ post }: { post: Post }) {
         Transformar este post em um vídeo curto (reel), com o mesmo texto e arte, fundo animado e
         música de fundo opcional:
       </p>
-      <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer mb-2">
-        <span className="bg-white border border-gray-300 rounded-lg px-3 py-1.5 hover:bg-gray-100">
+      <label className="flex flex-wrap items-center gap-2 text-sm text-gray-600 cursor-pointer mb-2">
+        <span className="bg-white border border-gray-300 rounded-lg px-3 py-1.5 hover:bg-gray-100 whitespace-nowrap">
           {uploadingAudio ? 'Enviando...' : '🎵 Escolher música (opcional)'}
         </span>
         <input
@@ -530,7 +530,7 @@ function VideoExport({ post }: { post: Post }) {
             if (file) handleUploadAudio(file)
           }}
         />
-        {audioName && <span className="truncate">{audioName}</span>}
+        {audioName && <span className="truncate max-w-full min-w-0">{audioName}</span>}
       </label>
       {audioError && (
         <div className="mb-2 bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-sm">
@@ -975,7 +975,7 @@ export function WizardPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto p-8">
+    <div className="max-w-2xl mx-auto p-4 sm:p-8">
       <h1 className="text-2xl font-bold text-gray-900 mb-6">Criar Post (Wizard)</h1>
 
       {step === 1 && (

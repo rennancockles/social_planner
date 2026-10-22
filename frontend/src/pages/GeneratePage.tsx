@@ -145,7 +145,7 @@ export function GeneratePage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto p-8">
+    <div className="max-w-2xl mx-auto p-4 sm:p-8">
       <h1 className="text-2xl font-bold text-gray-900 mb-6">Gerar Posts</h1>
 
       <form onSubmit={handleGenerate} className="flex gap-3 mb-8">

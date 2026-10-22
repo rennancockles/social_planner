@@ -159,10 +159,10 @@ export function ProfilePage() {
     }
   }
 
-  if (loading) return <div className="p-8 text-gray-500">Carregando...</div>
+  if (loading) return <div className="p-4 sm:p-8 text-gray-500">Carregando...</div>
 
   return (
-    <div className="max-w-lg mx-auto p-8 space-y-6">
+    <div className="max-w-lg mx-auto p-4 sm:p-8 space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">Configurar Perfil</h1>
 
       <SuggestPanel onSuggest={applySuggestion} />
